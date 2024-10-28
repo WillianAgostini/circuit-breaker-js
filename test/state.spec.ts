@@ -1,10 +1,11 @@
 import { State } from "../src";
+import { CircuitBreakerEvent } from "../src/circuitBreakerEvent";
 
 describe('State', () => {
     let state: State;
 
     beforeEach(() => {
-        state = new State(100);
+        state = new State(new CircuitBreakerEvent(), 100);
     });
 
     test('initial state should be CLOSED', () => {
@@ -42,7 +43,7 @@ describe('State', () => {
     let state: State;
 
     beforeEach(() => {
-        state = new State();
+        state = new State(new CircuitBreakerEvent());
     });
 
     test('shoud not reset timeout', (done) => {

@@ -141,3 +141,58 @@ describe('CircuitBreaker :: isError', () => {
         await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
     });
 });
+
+describe('CircuitBreaker :: events', () => {
+    let breaker: CircuitBreaker;
+    let openListener: jest.Mock;
+    let closeListener: jest.Mock;
+    let halfOpenListener: jest.Mock;
+    let successListener: jest.Mock;
+    let errorListener: jest.Mock;
+
+    beforeEach(() => {
+        breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 5 });
+        openListener = jest.fn();
+        closeListener = jest.fn();
+        halfOpenListener = jest.fn();
+        successListener = jest.fn();
+        errorListener = jest.fn();
+
+        breaker.event.on('open', openListener);
+        breaker.event.on('close', closeListener);
+        breaker.event.on('halfOpen', halfOpenListener);
+        breaker.event.on('sucess', successListener);
+        breaker.event.on('error', errorListener);
+    });
+
+    test('should emit open event', async () => {
+        const promise = failurePromise(5, new Error('failure'));
+        await expect(breaker.execute(promise)).rejects.toThrow('failure');
+        expect(openListener).toHaveBeenCalled();
+    });
+
+    test('should emit close event', async () => {
+        breaker.halfOpen();
+        const promise = successPromise('success');
+        await expect(breaker.execute(promise)).resolves.toBe('success');
+        expect(closeListener).toHaveBeenCalled();
+    });
+
+    test('should emit halfOpen event', async () => {
+        breaker.open();
+        await timeoutPromise(10);
+        expect(halfOpenListener).toHaveBeenCalled();
+    });
+
+    test('should emit success event', async () => {
+        const promise = successPromise('success');
+        await expect(breaker.execute(promise)).resolves.toBe('success');
+        expect(successListener).toHaveBeenCalledWith('success');
+    });
+
+    test('should emit error event', async () => {
+        const promise = failurePromise(5, new Error('failure'));
+        await expect(breaker.execute(promise)).rejects.toThrow('failure');
+        expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
+    });
+});
