@@ -8,23 +8,25 @@ export enum CircuitState {
 
 export class State {
     private current = CircuitState.CLOSED;
+    private timeout: NodeJS.Timeout | undefined;
 
-    constructor(private opts: Options) { }
+    constructor(private resetTimeout?: number) { }
 
-    startResetTimeout() {
-        if (!this.opts.resetTimeout) return;
+    #startResetTimeout() {
+        if (!this.resetTimeout) return;
 
-        setTimeout(() => {
+        this.timeout = setTimeout(() => {
             this.setHalfOpen();
-        }, this.opts.resetTimeout)
+        }, this.resetTimeout)
     }
 
     setOpen() {
         this.current = CircuitState.OPEN;
-        this.startResetTimeout();
+        this.#startResetTimeout();
     }
 
     setClose() {
+        clearTimeout(this.timeout);
         this.current = CircuitState.CLOSED;
     }
 
