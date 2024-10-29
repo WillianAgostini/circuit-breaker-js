@@ -1,6 +1,4 @@
-import { CircuitBreakerEvent } from "./circuitBreakerEvent";
-
-export enum CircuitState {
+enum CircuitState {
     CLOSED,
     HALF_OPEN,
     OPEN,
@@ -8,34 +6,6 @@ export enum CircuitState {
 
 export class State {
     private current = CircuitState.CLOSED;
-    private timeout: NodeJS.Timeout | undefined;
-
-    constructor(private event: CircuitBreakerEvent, private resetTimeout?: number) { }
-
-    #startResetTimeout() {
-        if (!this.resetTimeout) return;
-
-        this.timeout = setTimeout(() => {
-            this.setHalfOpen();
-        }, this.resetTimeout)
-    }
-
-    setOpen() {
-        this.current = CircuitState.OPEN;
-        this.#startResetTimeout();
-        this.event.emit('open');
-    }
-
-    setClose() {
-        clearTimeout(this.timeout);
-        this.current = CircuitState.CLOSED;
-        this.event.emit('close');
-    }
-
-    setHalfOpen() {
-        this.current = CircuitState.HALF_OPEN;
-        this.event.emit('halfOpen');
-    }
 
     get isOpen() {
         return this.current === CircuitState.OPEN;
@@ -47,6 +17,18 @@ export class State {
 
     get isHalfOpen() {
         return this.current === CircuitState.HALF_OPEN;
+    }
+
+    setOpen() {
+        this.current = CircuitState.OPEN;
+    }
+
+    setClose() {
+        this.current = CircuitState.CLOSED;
+    }
+
+    setHalfOpen() {
+        this.current = CircuitState.HALF_OPEN;
     }
 
 }

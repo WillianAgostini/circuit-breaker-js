@@ -4,4 +4,5 @@ export interface Options {
     timeout?: number,
     resetTimeout?: number,
     isError?(err: any): boolean;
+    autoRenewAbortController?: boolean;
 }
