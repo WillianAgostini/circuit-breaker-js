@@ -34,6 +34,7 @@ export class CircuitBreaker {
         this.#startResetTimeout();
         this.#windowsSize.reset();
         this.#abortController?.abort();
+        this.#currentState.setTryingClose(false);
         this.event.emit('open');
     };
 
@@ -41,12 +42,14 @@ export class CircuitBreaker {
         this.#clearResetTimeout();
         this.#currentState.setClose();
         this.#renewAbortControllerIfNedded();
+        this.#currentState.setTryingClose(false);
         this.event.emit('close');
     };
 
     halfOpen = () => {
         this.#currentState.setHalfOpen()
         this.#renewAbortControllerIfNedded();
+        this.#currentState.setTryingClose(true);
         this.event.emit('halfOpen');
     };
 
@@ -57,22 +60,27 @@ export class CircuitBreaker {
             throw new CircuitBreakerError('Circuit is open');
         }
 
+        if (this.isHalfOpen()) {
+            if (!this.#currentState.canTryCloseCircuit()) {
+                this.event.emit('reject');
+                throw new CircuitBreakerError('Circuit is open');
+            }
+
+            this.#currentState.setTryingClose(false);
+        }
+
         try {
             const response = await Promise.race([promise, this.#getRejectTimeout()]);
             if (this.isHalfOpen()) {
                 this.close();
             }
             this.#windowsSize.pushSuccess();
-            this.event.emit('sucess', response);
+            this.event.emit('success', response);
             return response;
         } catch (err) {
-            if (err instanceof CircuitBreakerError) {
-                throw err;
-            }
-
             if (this.#breakerOptions.isError && !this.#breakerOptions.isError(err)) {
                 this.#windowsSize.pushSuccess();
-                this.event.emit('sucess', undefined);
+                this.event.emit('success', undefined);
                 throw err;
             }
 

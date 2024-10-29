@@ -46,6 +46,83 @@ describe('CircuitBreaker', () => {
             expect(breaker.getSuccess()).toBe(0);
             expect(breaker.getFail()).toBe(0);
             expect(breaker.getTotalRequests()).toBe(0);
+            expect(breaker.getFailedPercent()).toBe(0);
+        });
+
+        test('should pass 1 execution when circuit is HALF_OPEN', async () => {
+            breaker.halfOpen();
+            const successMock = jest.fn();
+            const rejectMock = jest.fn();
+            breaker.event.on('success', successMock);
+            breaker.event.on('reject', rejectMock);
+
+            const promise = timeoutPromise(5);
+
+            await Promise.allSettled([
+                breaker.execute(promise),
+                breaker.execute(promise),
+                breaker.execute(promise),
+            ]);
+
+            setTimeout(() => {
+
+            }, 10);
+
+            expect(successMock).toHaveBeenCalledTimes(1);
+            expect(rejectMock).toHaveBeenCalledTimes(2);
+        });
+
+        test('should pass 1 execution when circuit is HALF_OPEN', (done) => {
+            breaker.halfOpen();
+            const successMock = jest.fn();
+            const rejectMock = jest.fn();
+            const errorMock = jest.fn();
+            breaker.event.on('success', successMock);
+            breaker.event.on('reject', rejectMock);
+            breaker.event.on('error', errorMock);
+
+            const failPromise = failurePromise(5, new Error('failure'));
+            const promise = timeoutPromise(5);
+
+            Promise.allSettled([
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+            ]).finally(() => {
+                setTimeout(async () => {
+                    await breaker.execute(promise);
+
+                    expect(breaker.isClose()).toBe(true);
+                    expect(successMock).toHaveBeenCalledTimes(1);
+                    expect(rejectMock).toHaveBeenCalledTimes(1);
+                    expect(errorMock).toHaveBeenCalledTimes(1);
+                    done();
+                }, 10);
+            })
+        });
+
+        test('should pass 1 execution when circuit is HALF_OPEN in 2 executions', async () => {
+            breaker.halfOpen();
+            const successMock = jest.fn();
+            const rejectMock = jest.fn();
+            breaker.event.on('success', successMock);
+            breaker.event.on('reject', rejectMock);
+
+            const promise = timeoutPromise(5);
+
+            await Promise.allSettled([
+                breaker.execute(promise),
+                breaker.execute(promise),
+                breaker.execute(promise),
+            ]);
+
+            await Promise.allSettled([
+                breaker.execute(promise),
+                breaker.execute(promise),
+                breaker.execute(promise),
+            ]);
+
+            expect(successMock).toHaveBeenCalledTimes(4);
+            expect(rejectMock).toHaveBeenCalledTimes(2);
         });
     });
 
@@ -179,6 +256,20 @@ describe('CircuitBreaker', () => {
             const promise = successPromise('success');
             await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
         });
+
+        test('should re-throw error and open circuit for critical error', async () => {
+            const errorEventMock = jest.fn();
+            breaker.event.on('error', errorEventMock);
+
+            const criticalError = new Error('critical error');
+            const promise = failurePromise(5, criticalError);
+
+            await expect(breaker.execute(promise)).rejects.toThrow('critical error');
+
+            expect(errorEventMock).toHaveBeenCalledWith(criticalError);
+
+            expect(breaker.isOpen()).toBe(true);
+        });
     });
 
     describe('events', () => {
@@ -200,7 +291,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('open', openListener);
             breaker.event.on('close', closeListener);
             breaker.event.on('halfOpen', halfOpenListener);
-            breaker.event.on('sucess', successListener);
+            breaker.event.on('success', successListener);
             breaker.event.on('error', errorListener);
         });
 
