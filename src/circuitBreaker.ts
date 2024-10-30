@@ -118,6 +118,10 @@ export class CircuitBreaker {
         if (this.#window.failurePercentage > this.#options.failureThresholdPercentage) {
             this.open();
         }
+
+        if(this.#options.failureThresholdCount && this.#window.failureCount >= this.#options.failureThresholdCount ) {
+            this.open();
+        } 
     }
 
     #initializeAbortController() {

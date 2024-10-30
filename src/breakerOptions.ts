@@ -7,6 +7,7 @@ export class BreakerOptions {
     resetTimeout?: number;
     isError?: (err: any) => boolean;
     autoRenewAbortController: boolean;
+    failureThresholdCount: number;
 
     constructor(opts: Options) {
         const {
@@ -16,6 +17,7 @@ export class BreakerOptions {
             resetTimeout,
             isError,
             autoRenewAbortController = false,
+            failureThresholdCount = 0,
         } = opts;
 
         this.failureThresholdPercentage = failureThresholdPercentage;
@@ -24,5 +26,6 @@ export class BreakerOptions {
         this.resetTimeout = resetTimeout;
         this.isError = isError;
         this.autoRenewAbortController = autoRenewAbortController;
+        this.failureThresholdCount = failureThresholdCount;
     }
 }

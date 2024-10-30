@@ -358,4 +358,54 @@ describe('CircuitBreaker', () => {
             }, 51);
         });
     });
+
+    describe('failureThresholdCount', () => {
+        let breaker: CircuitBreaker;
+
+        beforeEach(() => {
+            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 100, failureThresholdCount: 3 });
+        });
+
+        test('should set state to OPEN on max failureThresholdCount', async () => {
+            const promise = successPromise('success');
+            const failPromise = Promise.reject('failure');
+
+            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.allSettled([
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+            ]);
+
+            expect(breaker.isClosed()).toBe(true);
+        });
+
+        test('should set state to OPEN on max failureThresholdCount', async () => {
+            const promise = successPromise('success');
+            const failPromise = Promise.reject('failure');
+
+            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.allSettled([
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+            ]);
+
+            expect(breaker.isOpen()).toBe(true);
+        });
+
+        test('should set state to OPEN passing max failureThresholdCount', async () => {
+            const promise = successPromise('success');
+            const failPromise = Promise.reject('failure');
+
+            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.allSettled([
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+                breaker.execute(failPromise),
+            ]);
+
+            expect(breaker.isOpen()).toBe(true);
+        });
+    });
 });

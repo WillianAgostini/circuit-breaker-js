@@ -5,4 +5,5 @@ export interface Options {
     resetTimeout?: number;
     isError?: (err: any) => boolean;
     autoRenewAbortController?: boolean;
+    failureThresholdCount?: number;
 }
