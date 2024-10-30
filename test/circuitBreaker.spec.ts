@@ -30,7 +30,7 @@ describe('CircuitBreaker', () => {
             await timeoutPromise(5);
             expect(breaker.isHalfOpen()).toBe(true);
             await breaker.execute(successPromise('success'));
-            expect(breaker.isClose()).toBe(true);
+            expect(breaker.isClosed()).toBe(true);
         });
 
         test('should throw error when circuit is OPEN', async () => {
@@ -43,10 +43,10 @@ describe('CircuitBreaker', () => {
             breaker.open();
             const promise = successPromise('success');
             await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
-            expect(breaker.getSuccess()).toBe(0);
-            expect(breaker.getFail()).toBe(0);
-            expect(breaker.getTotalRequests()).toBe(0);
-            expect(breaker.getFailedPercent()).toBe(0);
+            expect(breaker.successCount).toBe(0);
+            expect(breaker.failureCount).toBe(0);
+            expect(breaker.totalRequests).toBe(0);
+            expect(breaker.failurePercentage).toBe(0);
         });
 
         test('should pass 1 execution when circuit is HALF_OPEN', async () => {
@@ -56,17 +56,13 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = timeoutPromise(5);
+            const promise = timeoutPromise(9);
 
             await Promise.allSettled([
                 breaker.execute(promise),
                 breaker.execute(promise),
                 breaker.execute(promise),
             ]);
-
-            setTimeout(() => {
-
-            }, 10);
 
             expect(successMock).toHaveBeenCalledTimes(1);
             expect(rejectMock).toHaveBeenCalledTimes(2);
@@ -91,7 +87,7 @@ describe('CircuitBreaker', () => {
                 setTimeout(async () => {
                     await breaker.execute(promise);
 
-                    expect(breaker.isClose()).toBe(true);
+                    expect(breaker.isClosed()).toBe(true);
                     expect(successMock).toHaveBeenCalledTimes(1);
                     expect(rejectMock).toHaveBeenCalledTimes(1);
                     expect(errorMock).toHaveBeenCalledTimes(1);
@@ -191,7 +187,7 @@ describe('CircuitBreaker', () => {
             expect(breaker.isHalfOpen()).toBe(true);
             const promise = successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
-            expect(breaker.isClose()).toBe(true);
+            expect(breaker.isClosed()).toBe(true);
         });
 
         test('should transition from HALF_OPEN to OPEN on failed request', async () => {
@@ -219,7 +215,7 @@ describe('CircuitBreaker', () => {
         test('should not throw timeout exeption when timeout is undefined', async () => {
             const promise = timeoutPromise(50);
             await breaker.execute(promise);
-            expect(breaker.isClose()).toBe(true);
+            expect(breaker.isClosed()).toBe(true);
         });
     });
 
@@ -335,12 +331,12 @@ describe('CircuitBreaker', () => {
         });
 
         test('shoud renew AbortController timeout after HALF_OPEN', (done) => {
-            const oldSignal = breaker.getSignal();
+            const oldSignal = breaker.signal;
             breaker.open();
 
             setTimeout(async () => {
                 expect(breaker.isHalfOpen()).toBe(true);
-                const newSignal = breaker.getSignal();
+                const newSignal = breaker.signal;
                 expect(oldSignal?.aborted).toBe(true);
                 expect(newSignal?.aborted).toBe(false);
                 done();
@@ -348,14 +344,14 @@ describe('CircuitBreaker', () => {
         });
 
         test('shoud renew AbortController timeout after OPEN', (done) => {
-            const oldSignal = breaker.getSignal();
+            const oldSignal = breaker.signal;
             breaker.open();
 
             setTimeout(async () => {
                 const promise = successPromise('success');
                 await expect(breaker.execute(promise)).resolves.toBe('success');
-                expect(breaker.isClose()).toBe(true);
-                const newSignal = breaker.getSignal();
+                expect(breaker.isClosed()).toBe(true);
+                const newSignal = breaker.signal;
                 expect(oldSignal?.aborted).toBe(true);
                 expect(newSignal?.aborted).toBe(false);
                 done();

@@ -1,19 +1,28 @@
-import { Options } from "./interfaces";
+import { Options } from "./options";
 
 export class BreakerOptions {
     windowSize: number;
     failureThresholdPercentage: number;
     timeout?: number;
     resetTimeout?: number;
-    isError?(err: any): boolean;
+    isError?: (err: any) => boolean;
     autoRenewAbortController: boolean;
 
     constructor(opts: Options) {
-        this.failureThresholdPercentage = opts.failureThresholdPercentage || 5;
-        this.windowSize = opts.windowSize || 60000;
-        this.timeout = opts.timeout;
-        this.resetTimeout = opts.resetTimeout;
-        this.isError = opts.isError;
-        this.autoRenewAbortController = opts.autoRenewAbortController || false;
+        const {
+            failureThresholdPercentage = 5,
+            windowSize = 60000,
+            timeout,
+            resetTimeout,
+            isError,
+            autoRenewAbortController = false,
+        } = opts;
+
+        this.failureThresholdPercentage = failureThresholdPercentage;
+        this.windowSize = windowSize;
+        this.timeout = timeout;
+        this.resetTimeout = resetTimeout;
+        this.isError = isError;
+        this.autoRenewAbortController = autoRenewAbortController;
     }
 }

@@ -1,129 +1,152 @@
 import { BreakerOptions } from "./breakerOptions";
 import { CircuitBreakerError } from "./circuitBreakerError";
 import { CircuitBreakerEvent } from "./circuitBreakerEvent";
-import { Options } from "./interfaces";
+import { Options } from "./options";
 import { State } from "./state";
-import { WindowsSize } from "./windowsSize";
+import { Window } from "./window";
 
 export class CircuitBreaker {
     readonly event = new CircuitBreakerEvent();
 
-    readonly #currentState: State;
-    readonly #windowsSize: WindowsSize;
-    readonly #breakerOptions: BreakerOptions;
+    readonly #state: State;
+    readonly #window: Window;
+    readonly #options: BreakerOptions;
     #abortController: AbortController | undefined;
-    #resetTimeoutTimer: NodeJS.Timeout | undefined;
+    #resetTimeout: NodeJS.Timeout | undefined;
 
     constructor(opts: Options) {
-        this.#breakerOptions = new BreakerOptions(opts);
-        this.#currentState = new State();
-        this.#windowsSize = new WindowsSize(this.#breakerOptions.windowSize);
-        this.#renewAbortControllerIfNedded();
+        this.#options = new BreakerOptions(opts);
+        this.#state = new State();
+        this.#window = new Window(this.#options.windowSize);
+        this.#initializeAbortController();
     }
 
-    getSuccess = () => this.#windowsSize.success;
-    getFail = () => this.#windowsSize.fail;
-    getTotalRequests = () => this.#windowsSize.totalRequests;
-    getFailedPercent = () => this.#windowsSize.failedPercent;
-    isOpen = () => this.#currentState.isOpen;
-    isClose = () => this.#currentState.isClose;
-    isHalfOpen = () => this.#currentState.isHalfOpen;
+    get successCount() {
+        return this.#window.successCount;
+    }
 
-    open = () => {
-        this.#currentState.setOpen();
-        this.#startResetTimeout();
-        this.#windowsSize.reset();
+    get failureCount() {
+        return this.#window.failureCount;
+    }
+
+    get totalRequests() {
+        return this.#window.totalRequests;
+    }
+
+    get failurePercentage() {
+        return this.#window.failurePercentage;
+    }
+
+    get signal() {
+        return this.#abortController?.signal;
+    }
+
+    isOpen() {
+        return this.#state.isOpen;
+    }
+
+    isClosed() {
+        return this.#state.isClosed;
+    }
+
+    isHalfOpen() {
+        return this.#state.isHalfOpen;
+    }
+
+    open() {
+        this.#state.setOpen();
+        this.#startResetTimer();
+        this.#window.reset();
         this.#abortController?.abort();
-        this.#currentState.setTryingClose(false);
+        this.#state.setAttemptingClose(false);
         this.event.emit('open');
-    };
+    }
 
-    close = () => {
-        this.#clearResetTimeout();
-        this.#currentState.setClose();
-        this.#renewAbortControllerIfNedded();
-        this.#currentState.setTryingClose(false);
+    close() {
+        this.#clearResetTimer();
+        this.#state.setClosed();
+        this.#initializeAbortController();
+        this.#state.setAttemptingClose(false);
         this.event.emit('close');
-    };
+    }
 
-    halfOpen = () => {
-        this.#currentState.setHalfOpen()
-        this.#renewAbortControllerIfNedded();
-        this.#currentState.setTryingClose(true);
+    halfOpen() {
+        this.#state.setHalfOpen();
+        this.#initializeAbortController();
+        this.#state.setAttemptingClose(true);
         this.event.emit('halfOpen');
-    };
+    }
 
     async execute(promise: Promise<unknown>) {
-        this.#shouldAttemptReset();
+        this.#evaluateResetCondition();
+
         if (this.isOpen()) {
             this.event.emit('reject');
             throw new CircuitBreakerError('Circuit is open');
         }
 
         if (this.isHalfOpen()) {
-            if (!this.#currentState.canTryCloseCircuit()) {
+            if (!this.#state.canTryClosing()) {
                 this.event.emit('reject');
                 throw new CircuitBreakerError('Circuit is open');
             }
 
-            this.#currentState.setTryingClose(false);
+            this.#state.setAttemptingClose(false);
         }
 
         try {
-            const response = await Promise.race([promise, this.#getRejectTimeout()]);
+            const result = await Promise.race([promise, this.#timeoutRejection()]);
             if (this.isHalfOpen()) {
                 this.close();
             }
-            this.#windowsSize.pushSuccess();
-            this.event.emit('success', response);
-            return response;
-        } catch (err) {
-            if (this.#breakerOptions.isError && !this.#breakerOptions.isError(err)) {
-                this.#windowsSize.pushSuccess();
-                this.event.emit('success', undefined);
-                throw err;
-            }
-
-            this.#windowsSize.pushFail();
-            this.#shouldAttemptReset();
-            this.event.emit('error', err);
-            throw err;
+            this.#window.recordSuccess();
+            this.event.emit('success', result);
+            return result;
+        } catch (error) {
+            this.#handleExecutionError(error);
         }
     }
 
-    #getRejectTimeout() {
-        if (!this.#breakerOptions.timeout) return undefined;
-        return new Promise((_, reject) => setTimeout(() => reject(new Error('Operation timed out')), this.#breakerOptions.timeout));
+    #timeoutRejection() {
+        if (!this.#options.timeout) return undefined;
+        return new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Operation timed out')), this.#options.timeout)
+        );
     }
 
-    #shouldAttemptReset() {
-        const failedPercent = this.#windowsSize.failedPercent
-        const failureThresholdPercentage = this.#breakerOptions.failureThresholdPercentage;
-        if (failedPercent > failureThresholdPercentage) {
+    #evaluateResetCondition() {
+        if (this.#window.failurePercentage > this.#options.failureThresholdPercentage) {
             this.open();
         }
     }
 
-    #renewAbortControllerIfNedded() {
-        if (!this.#breakerOptions.autoRenewAbortController) return;
-        if (!this.#abortController || this.#abortController.signal.aborted)
+    #initializeAbortController() {
+        if (!this.#options.autoRenewAbortController) return;
+        if (!this.#abortController || this.#abortController.signal.aborted) {
             this.#abortController = new AbortController();
+        }
     }
 
-    getSignal() {
-        return this.#abortController?.signal;
+    #startResetTimer() {
+        if (!this.#options.resetTimeout) return;
+
+        this.#resetTimeout = setTimeout(() => this.halfOpen(), this.#options.resetTimeout);
     }
 
-    #startResetTimeout() {
-        if (!this.#breakerOptions.resetTimeout) return;
-
-        this.#resetTimeoutTimer = setTimeout(() => {
-            this.halfOpen();
-        }, this.#breakerOptions.resetTimeout)
+    #clearResetTimer() {
+        clearTimeout(this.#resetTimeout);
     }
 
-    #clearResetTimeout() {
-        clearTimeout(this.#resetTimeoutTimer);
-    }
+    #handleExecutionError(error: unknown) {
+        if (this.#options.isError && !this.#options.isError(error)) {
+            this.#window.recordSuccess();
+            this.event.emit('success', undefined);
+            throw error;
+        }
 
+        this.#window.recordFailure();
+        this.#evaluateResetCondition();
+        this.event.emit('error', error);
+        throw error;
+    }
 }

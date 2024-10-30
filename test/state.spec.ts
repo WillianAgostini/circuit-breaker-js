@@ -8,7 +8,7 @@ describe('State', () => {
     });
 
     test('initial state should be CLOSED', () => {
-        expect(state.isClose).toBe(true);
+        expect(state.isClosed).toBe(true);
     });
 
     test('state should change to OPEN', () => {
@@ -23,7 +23,7 @@ describe('State', () => {
 
     test('state should change to CLOSED', () => {
         state.setOpen();
-        state.setClose();
-        expect(state.isClose).toBe(true);
+        state.setClosed();
+        expect(state.isClosed).toBe(true);
     });
 });

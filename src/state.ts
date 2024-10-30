@@ -1,47 +1,42 @@
 enum CircuitState {
     CLOSED,
-    PENDING_OPEN,
     HALF_OPEN,
     OPEN,
 }
 
 export class State {
-    #current = CircuitState.CLOSED;
-    #tryingClose = false;
+    #currentState = CircuitState.CLOSED;
+    #attemptingClose = false;
 
     get isOpen() {
-        return this.#current === CircuitState.OPEN;
+        return this.#currentState === CircuitState.OPEN;
     }
 
-    get isClose() {
-        return this.#current === CircuitState.CLOSED;
+    get isClosed() {
+        return this.#currentState === CircuitState.CLOSED;
     }
 
     get isHalfOpen() {
-        return this.#current === CircuitState.HALF_OPEN;
-    }
-
-    get isPendingOpen() {
-        return this.#tryingClose;
+        return this.#currentState === CircuitState.HALF_OPEN;
     }
 
     setOpen() {
-        this.#current = CircuitState.OPEN;
+        this.#currentState = CircuitState.OPEN;
     }
 
-    setClose() {
-        this.#current = CircuitState.CLOSED;
+    setClosed() {
+        this.#currentState = CircuitState.CLOSED;
     }
 
     setHalfOpen() {
-        this.#current = CircuitState.HALF_OPEN;
+        this.#currentState = CircuitState.HALF_OPEN;
     }
 
-    setTryingClose(value: boolean) {
-        this.#tryingClose = value;
+    setAttemptingClose(value: boolean) {
+        this.#attemptingClose = value;
     }
 
-    canTryCloseCircuit() {
-        return this.isPendingOpen;
+    canTryClosing() {
+        return this.#attemptingClose;
     }
 }
