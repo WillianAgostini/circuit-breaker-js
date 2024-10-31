@@ -1,17 +1,14 @@
 export class Window {
     #successTimestamps: number[] = [];
-    #successTimestampsOnHalfOpen: number[] = [];
     #failureTimestamps: number[] = [];
+    #successOnHalfOpen: number[] = [];
+    #failureOnHalfOpen: number[] = [];
 
     constructor(private readonly windowSizeMs: number) {}
 
     get successCount(): number {
         this.#successTimestamps = this.#filterWithinWindow(this.#successTimestamps);
         return this.#successTimestamps.length;
-    }
-
-    get successCountOnHalfOpen(): number {
-        return this.#successTimestampsOnHalfOpen.length;
     }
 
     get failureCount(): number {
@@ -28,26 +25,39 @@ export class Window {
         return total > 0 ? (this.failureCount * 100) / total : 0;
     }
 
-    recordSuccess(): void {
-        this.#successTimestamps.push(Date.now());
+    get successCountOnHalfOpen(): number {
+        return this.#successOnHalfOpen.length;
     }
 
-    recordSuccessOnHalfOpen(): void {
-        this.#successTimestampsOnHalfOpen.push(Date.now());
+    get failureCountOnHalfOpen(): number {
+        return this.#failureOnHalfOpen.length;
+    }
+
+    recordSuccess(): void {
+        this.#successTimestamps.push(Date.now());
     }
 
     recordFailure(): void {
         this.#failureTimestamps.push(Date.now());
     }
 
+    recordSuccessOnHalfOpen(): void {
+        this.#successOnHalfOpen.push(Date.now());
+    }
+    
+    recordFailureOnHalfOpen(): void {
+        this.#failureOnHalfOpen.push(Date.now());
+    }
+
     reset(): void {
         this.#successTimestamps = [];
         this.#failureTimestamps = [];
         this.resetSuccessOnHalfOpen();
+        this.#failureOnHalfOpen = [];
     }
 
     resetSuccessOnHalfOpen() {
-        this.#successTimestampsOnHalfOpen = [];
+        this.#successOnHalfOpen = [];
     }
 
     #filterWithinWindow(timestamps: number[]): number[] {

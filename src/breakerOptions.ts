@@ -9,6 +9,7 @@ export class BreakerOptions {
     autoRenewAbortController: boolean;
     failureThresholdCount: number;
     successThreshold: number;
+    retryAttempts: number;
 
     constructor(opts: Options) {
         const {
@@ -19,6 +20,7 @@ export class BreakerOptions {
             isError,
             autoRenewAbortController = false,
             failureThresholdCount = 0,
+            retryAttempts = 1,
             successThreshold = 1,
         } = opts;
 
@@ -30,5 +32,6 @@ export class BreakerOptions {
         this.autoRenewAbortController = autoRenewAbortController;
         this.failureThresholdCount = failureThresholdCount;
         this.successThreshold = successThreshold;
+        this.retryAttempts = retryAttempts;
     }
 }

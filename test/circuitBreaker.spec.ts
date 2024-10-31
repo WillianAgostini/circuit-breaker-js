@@ -416,7 +416,7 @@ describe('CircuitBreaker', () => {
             breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 100, successThreshold: 2 });
         });
 
-        test('should remain in HALF_OPEN state when retry attempts are below max limit', async () => {
+        test('should remain in HALF_OPEN state when successThreshold is below limit', async () => {
             const promise = successPromise('success');
             breaker.halfOpen();
 
@@ -425,7 +425,7 @@ describe('CircuitBreaker', () => {
             expect(breaker.isHalfOpen()).toBe(true);
         });
 
-        test('should transition to CLOSED state when reaching max retry attempts', async () => {
+        test('should transition to CLOSED state when reaching successThreshold limit', async () => {
             const promise = successPromise('success');
             breaker.halfOpen();
 
@@ -435,7 +435,7 @@ describe('CircuitBreaker', () => {
             expect(breaker.isClosed()).toBe(true);
         });
 
-        test('should transition to CLOSED state when exceeding max retry attempts', async () => {
+        test('should transition to CLOSED state when exceeding successThreshold limit', async () => {
             const promise = successPromise('success');
             breaker.halfOpen();
 
@@ -446,7 +446,7 @@ describe('CircuitBreaker', () => {
             expect(breaker.isClosed()).toBe(true);
         });
 
-        test('should transition to HALF_OPEN state after reset and single retry attempt', async () => {
+        test('should remain HALF_OPEN state after reset and one successful attempt', async () => {
             const promise = successPromise('success');
 
             breaker.halfOpen();
@@ -459,7 +459,7 @@ describe('CircuitBreaker', () => {
             expect(breaker.isHalfOpen()).toBe(true);
         });
 
-        test('should transition to CLOSED state after reset and reaching max retry attempts', async () => {
+        test('should transition to CLOSED state after reset and reaching successThreshold', async () => {
             const promise = successPromise('success');
 
             breaker.halfOpen();
@@ -471,6 +471,71 @@ describe('CircuitBreaker', () => {
             await breaker.execute(promise);
 
             expect(breaker.isClosed()).toBe(true);
+        });
+    });
+
+    describe('retryAttempts', () => {
+        let breaker: CircuitBreaker;
+
+        beforeEach(() => {
+            breaker = new CircuitBreaker({ timeout: 1, retryAttempts: 2 });
+        });
+
+        test('should remain in HALF_OPEN state if retries are below attempt limit', async () => {
+            const promise = failurePromise(5, new Error('failure'));
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            expect(breaker.isHalfOpen()).toBe(true);
+        });
+
+        test('should transition to OPEN state upon reaching retry attempt limit', async () => {
+            const promise = failurePromise(5, new Error('failure'));
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            expect(breaker.isOpen()).toBe(true);
+        });
+
+        test('should transition to OPEN state upon exceeding retry attempt limit', async () => {
+            const promise = failurePromise(5, new Error('failure'));
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            expect(breaker.isOpen()).toBe(true);
+        });
+
+        test('should remain HALF_OPEN after reset and one failed retry', async () => {
+            const promise = failurePromise(5, new Error('failure'));
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            expect(breaker.isHalfOpen()).toBe(true);
+        });
+
+        test('should transition to OPEN state after reset and retry limit is reached', async () => {
+            const promise = failurePromise(5, new Error('failure'));
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            breaker.halfOpen();
+            await Promise.allSettled([breaker.execute(promise)]);
+            await Promise.allSettled([breaker.execute(promise)]);
+
+            expect(breaker.isOpen()).toBe(true);
         });
     });
 });

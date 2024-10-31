@@ -99,15 +99,33 @@ export class CircuitBreaker {
             const result = await Promise.race([promise, this.#timeoutRejection()]);
             if (this.isHalfOpen()) {
                 this.#window.recordSuccessOnHalfOpen();
-                if (!this.#evaluateCloseCondition()) {
-                    this.#state.setAttemptingClose(true);
-                }
+                this.#evaluateCloseCondition();
+                this.#state.setAttemptingClose(true);
             }
             this.#window.recordSuccess();
             this.event.emit('success', result);
             return result;
         } catch (error) {
-            this.#handleExecutionError(error);
+            if (this.#options.isError && !this.#options.isError(error)) {
+                this.#window.recordSuccess();
+                this.event.emit('success', undefined);
+                throw error;
+            }
+
+            if (this.isHalfOpen()) {
+                this.#window.recordFailureOnHalfOpen();
+                this.#window.resetSuccessOnHalfOpen();
+                this.#evaluateOpenCondition();
+                this.#state.setAttemptingClose(true);
+            }
+
+            if (this.isClosed()) {
+                this.#window.recordFailure();
+                this.#evaluateResetCondition();
+            }
+
+            this.event.emit('error', error);
+            throw error;
         }
     }
 
@@ -117,6 +135,12 @@ export class CircuitBreaker {
             return true;
         }
         return false;
+    }
+
+    #evaluateOpenCondition() {
+        if (this.#window.failureCountOnHalfOpen >= this.#options.retryAttempts) {
+            this.open();
+        }
     }
 
     #timeoutRejection() {
@@ -151,22 +175,5 @@ export class CircuitBreaker {
 
     #clearResetTimer() {
         clearTimeout(this.#resetTimeout);
-    }
-
-    #handleExecutionError(error: unknown) {
-        if (this.#options.isError && !this.#options.isError(error)) {
-            this.#window.recordSuccess();
-            this.event.emit('success', undefined);
-            throw error;
-        }
-
-        if (this.isHalfOpen()) {
-            this.#window.resetSuccessOnHalfOpen();
-        }
-
-        this.#window.recordFailure();
-        this.#evaluateResetCondition();
-        this.event.emit('error', error);
-        throw error;
     }
 }
