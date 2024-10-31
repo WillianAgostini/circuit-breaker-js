@@ -1,5 +1,6 @@
 export class Window {
     #successTimestamps: number[] = [];
+    #successTimestampsOnHalfOpen: number[] = [];
     #failureTimestamps: number[] = [];
 
     constructor(private readonly windowSizeMs: number) {}
@@ -7,6 +8,10 @@ export class Window {
     get successCount(): number {
         this.#successTimestamps = this.#filterWithinWindow(this.#successTimestamps);
         return this.#successTimestamps.length;
+    }
+
+    get successCountOnHalfOpen(): number {
+        return this.#successTimestampsOnHalfOpen.length;
     }
 
     get failureCount(): number {
@@ -27,6 +32,10 @@ export class Window {
         this.#successTimestamps.push(Date.now());
     }
 
+    recordSuccessOnHalfOpen(): void {
+        this.#successTimestampsOnHalfOpen.push(Date.now());
+    }
+
     recordFailure(): void {
         this.#failureTimestamps.push(Date.now());
     }
@@ -34,6 +43,11 @@ export class Window {
     reset(): void {
         this.#successTimestamps = [];
         this.#failureTimestamps = [];
+        this.resetSuccessOnHalfOpen();
+    }
+
+    resetSuccessOnHalfOpen() {
+        this.#successTimestampsOnHalfOpen = [];
     }
 
     #filterWithinWindow(timestamps: number[]): number[] {

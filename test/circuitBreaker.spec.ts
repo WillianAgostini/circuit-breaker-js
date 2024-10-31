@@ -408,4 +408,69 @@ describe('CircuitBreaker', () => {
             expect(breaker.isOpen()).toBe(true);
         });
     });
+
+    describe('successThreshold', () => {
+        let breaker: CircuitBreaker;
+
+        beforeEach(() => {
+            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 100, successThreshold: 2 });
+        });
+
+        test('should remain in HALF_OPEN state when retry attempts are below max limit', async () => {
+            const promise = successPromise('success');
+            breaker.halfOpen();
+
+            await breaker.execute(promise);
+
+            expect(breaker.isHalfOpen()).toBe(true);
+        });
+
+        test('should transition to CLOSED state when reaching max retry attempts', async () => {
+            const promise = successPromise('success');
+            breaker.halfOpen();
+
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+
+            expect(breaker.isClosed()).toBe(true);
+        });
+
+        test('should transition to CLOSED state when exceeding max retry attempts', async () => {
+            const promise = successPromise('success');
+            breaker.halfOpen();
+
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+
+            expect(breaker.isClosed()).toBe(true);
+        });
+
+        test('should transition to HALF_OPEN state after reset and single retry attempt', async () => {
+            const promise = successPromise('success');
+
+            breaker.halfOpen();
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+
+            breaker.halfOpen();
+            await breaker.execute(promise);
+
+            expect(breaker.isHalfOpen()).toBe(true);
+        });
+
+        test('should transition to CLOSED state after reset and reaching max retry attempts', async () => {
+            const promise = successPromise('success');
+
+            breaker.halfOpen();
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+
+            breaker.halfOpen();
+            await breaker.execute(promise);
+            await breaker.execute(promise);
+
+            expect(breaker.isClosed()).toBe(true);
+        });
+    });
 });

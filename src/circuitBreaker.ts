@@ -67,6 +67,7 @@ export class CircuitBreaker {
         this.#state.setClosed();
         this.#initializeAbortController();
         this.#state.setAttemptingClose(false);
+        this.#window.reset();
         this.event.emit('close');
     }
 
@@ -97,7 +98,10 @@ export class CircuitBreaker {
         try {
             const result = await Promise.race([promise, this.#timeoutRejection()]);
             if (this.isHalfOpen()) {
-                this.close();
+                this.#window.recordSuccessOnHalfOpen();
+                if (!this.#evaluateCloseCondition()) {
+                    this.#state.setAttemptingClose(true);
+                }
             }
             this.#window.recordSuccess();
             this.event.emit('success', result);
@@ -105,6 +109,14 @@ export class CircuitBreaker {
         } catch (error) {
             this.#handleExecutionError(error);
         }
+    }
+
+    #evaluateCloseCondition() {
+        if (this.#window.successCountOnHalfOpen >= this.#options.successThreshold) {
+            this.close();
+            return true;
+        }
+        return false;
     }
 
     #timeoutRejection() {
@@ -119,9 +131,9 @@ export class CircuitBreaker {
             this.open();
         }
 
-        if(this.#options.failureThresholdCount && this.#window.failureCount >= this.#options.failureThresholdCount ) {
+        if (this.#options.failureThresholdCount && this.#window.failureCount >= this.#options.failureThresholdCount) {
             this.open();
-        } 
+        }
     }
 
     #initializeAbortController() {
@@ -146,6 +158,10 @@ export class CircuitBreaker {
             this.#window.recordSuccess();
             this.event.emit('success', undefined);
             throw error;
+        }
+
+        if (this.isHalfOpen()) {
+            this.#window.resetSuccessOnHalfOpen();
         }
 
         this.#window.recordFailure();

@@ -8,6 +8,7 @@ export class BreakerOptions {
     isError?: (err: any) => boolean;
     autoRenewAbortController: boolean;
     failureThresholdCount: number;
+    successThreshold: number;
 
     constructor(opts: Options) {
         const {
@@ -18,6 +19,7 @@ export class BreakerOptions {
             isError,
             autoRenewAbortController = false,
             failureThresholdCount = 0,
+            successThreshold = 1,
         } = opts;
 
         this.failureThresholdPercentage = failureThresholdPercentage;
@@ -27,5 +29,6 @@ export class BreakerOptions {
         this.isError = isError;
         this.autoRenewAbortController = autoRenewAbortController;
         this.failureThresholdCount = failureThresholdCount;
+        this.successThreshold = successThreshold;
     }
 }
