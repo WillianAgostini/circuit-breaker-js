@@ -97,36 +97,43 @@ export class CircuitBreaker {
 
         try {
             const result = await Promise.race([promise, this.#timeoutRejection()]);
-            if (this.isHalfOpen()) {
-                this.#window.recordSuccessOnHalfOpen();
-                this.#evaluateCloseCondition();
-                this.#state.setAttemptingClose(true);
-            }
-            this.#window.recordSuccess();
-            this.event.emit('success', result);
+            this.#handleExecutionSuccess(result);
             return result;
         } catch (error) {
-            if (this.#options.isError && !this.#options.isError(error)) {
-                this.#window.recordSuccess();
-                this.event.emit('success', undefined);
-                throw error;
-            }
+            this.#handleExecutionError(error);
+        }
+    }
 
-            if (this.isHalfOpen()) {
-                this.#window.recordFailureOnHalfOpen();
-                this.#window.resetSuccessOnHalfOpen();
-                this.#evaluateOpenCondition();
-                this.#state.setAttemptingClose(true);
-            }
+    #handleExecutionSuccess(result?: any) {
+        if (this.isHalfOpen()) {
+            this.#window.recordSuccessOnHalfOpen();
+            this.#evaluateCloseCondition();
+            this.#state.setAttemptingClose(true);
+        }
+        this.#window.recordSuccess();
+        this.event.emit('success', result);
+    }
 
-            if (this.isClosed()) {
-                this.#window.recordFailure();
-                this.#evaluateResetCondition();
-            }
-
-            this.event.emit('error', error);
+    #handleExecutionError(error: any) {
+        if (this.#options.isError && !this.#options.isError(error)) {
+            this.#handleExecutionSuccess();
             throw error;
         }
+
+        if (this.isHalfOpen()) {
+            this.#window.recordFailureOnHalfOpen();
+            this.#window.resetSuccessOnHalfOpen();
+            this.#evaluateOpenCondition();
+            this.#state.setAttemptingClose(true);
+        }
+
+        if (this.isClosed()) {
+            this.#window.recordFailure();
+            this.#evaluateResetCondition();
+        }
+
+        this.event.emit('error', error);
+        throw error;
     }
 
     #evaluateCloseCondition() {
