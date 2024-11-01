@@ -1,0 +1,24 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`CircuitBreaker toJSON should match snapshot to default options state 1`] = `
+{
+  "failureCount": 0,
+  "failurePercentage": 0,
+  "isClosed": true,
+  "isHalfOpen": false,
+  "isOpen": false,
+  "options": BreakerOptions {
+    "autoRenewAbortController": false,
+    "failureThresholdCount": 0,
+    "failureThresholdPercentage": 5,
+    "isError": undefined,
+    "resetTimeout": undefined,
+    "retryAttempts": 1,
+    "successThreshold": 1,
+    "timeout": undefined,
+    "windowSize": 60000,
+  },
+  "successCount": 0,
+  "totalRequests": 0,
+}
+`;

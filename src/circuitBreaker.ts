@@ -37,8 +37,12 @@ export class CircuitBreaker {
         return this.#window.failurePercentage;
     }
 
+    get abortController() {
+        return this.#abortController;
+    }
+
     get signal() {
-        return this.#abortController?.signal;
+        return this.abortController?.signal;
     }
 
     isOpen() {
@@ -139,9 +143,7 @@ export class CircuitBreaker {
     #evaluateCloseCondition() {
         if (this.#window.successCountOnHalfOpen >= this.#options.successThreshold) {
             this.close();
-            return true;
         }
-        return false;
     }
 
     #evaluateOpenCondition() {
@@ -169,7 +171,7 @@ export class CircuitBreaker {
 
     #initializeAbortController() {
         if (!this.#options.autoRenewAbortController) return;
-        if (!this.#abortController || this.#abortController.signal.aborted) {
+        if (!this.abortController || this.signal?.aborted) {
             this.#abortController = new AbortController();
         }
     }
@@ -182,5 +184,18 @@ export class CircuitBreaker {
 
     #clearResetTimer() {
         clearTimeout(this.#resetTimeout);
+    }
+
+    toJSON() {
+        return {
+            isOpen: this.isOpen(),
+            isClosed: this.isClosed(),
+            isHalfOpen: this.isHalfOpen(),
+            successCount: this.successCount,
+            failureCount: this.failureCount,
+            totalRequests: this.totalRequests,
+            failurePercentage: this.failurePercentage,
+            options: this.#options,
+        };
     }
 }

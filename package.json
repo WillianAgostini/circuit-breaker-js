@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -b",
+    "test": "jest",
+    "test:updateSnapshot": "jest --updateSnapshot"
   },
   "author": "",
   "license": "ISC",

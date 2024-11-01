@@ -56,7 +56,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = timeoutPromise(9);
+            const promise = timeoutPromise(1);
 
             await Promise.allSettled([
                 breaker.execute(promise),
@@ -224,7 +224,7 @@ describe('CircuitBreaker', () => {
 
         beforeEach(() => {
             breaker = new CircuitBreaker({
-                timeout: 10,
+                timeout: 100,
                 resetTimeout: 5,
                 isError: (err) => err.message !== 'non-critical error',
             });
@@ -537,5 +537,18 @@ describe('CircuitBreaker', () => {
 
             expect(breaker.isOpen()).toBe(true);
         });
+    });
+
+    describe('toJSON', () => {
+        let breaker: CircuitBreaker;
+
+        beforeEach(() => {
+            breaker = new CircuitBreaker({});
+        });
+
+        test('should match snapshot to default options state', async () => {
+            expect(breaker.toJSON()).toMatchSnapshot();
+        });
+
     });
 });
