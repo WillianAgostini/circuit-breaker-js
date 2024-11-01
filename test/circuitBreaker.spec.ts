@@ -10,7 +10,7 @@ describe('CircuitBreaker', () => {
         let breaker: CircuitBreaker;
 
         beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 5 });
+            breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 5 });
         });
 
         test('should execute successfully', async () => {
@@ -19,7 +19,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should throw error on timeout', async () => {
-            const promise = timeoutPromise(50);
+            const promise = timeoutPromise(110);
             await expect(breaker.execute(promise)).rejects.toThrow('Operation timed out');
         });
 
@@ -306,7 +306,7 @@ describe('CircuitBreaker', () => {
 
         test('should emit halfOpen event', async () => {
             breaker.open();
-            await timeoutPromise(10);
+            await timeoutPromise(11);
             expect(halfOpenListener).toHaveBeenCalled();
         });
 

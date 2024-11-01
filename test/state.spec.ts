@@ -1,4 +1,4 @@
-import { State } from "../src";
+import { State } from "../src/state";
 
 describe('State', () => {
     let state: State;

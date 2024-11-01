@@ -1,4 +1,4 @@
-import { Window } from "../src";
+import { Window } from "../src/window";
 
 describe('Window', () => {
     let windowSize: Window;
