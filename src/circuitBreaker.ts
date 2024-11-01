@@ -5,6 +5,10 @@ import { Options } from "./options";
 import { State } from "./state";
 import { Window } from "./window";
 
+interface PromiseFunction<T> {
+    (): Promise<T>;
+}
+
 export class CircuitBreaker {
     readonly event = new CircuitBreakerEvent();
 
@@ -82,7 +86,8 @@ export class CircuitBreaker {
         this.event.emit('halfOpen');
     }
 
-    async execute(promise: Promise<unknown>) {
+    async execute<T>(promiseFn: PromiseFunction<T>) {
+        this.#ensureIsPromiseFunction(promiseFn);
         this.#evaluateResetCondition();
 
         if (this.isOpen()) {
@@ -100,11 +105,17 @@ export class CircuitBreaker {
         }
 
         try {
-            const result = await Promise.race([promise, this.#timeoutRejection()]);
+            const result = await Promise.race([promiseFn(), this.#timeoutRejection()]);
             this.#handleExecutionSuccess(result);
-            return result;
+            return result as T;
         } catch (error) {
             this.#handleExecutionError(error);
+        }
+    }
+
+    #ensureIsPromiseFunction<T>(promiseFn: PromiseFunction<T>) {
+        if (typeof promiseFn !== 'function') {
+            throw new TypeError(`Invalid argument: Expected a function that returns a Promise. Ensure you are passing a function, not a Promise.`);
         }
     }
 

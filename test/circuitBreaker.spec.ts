@@ -14,34 +14,34 @@ describe('CircuitBreaker', () => {
         });
 
         test('should execute successfully', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
         });
 
         test('should throw error on timeout', async () => {
-            const promise = timeoutPromise(110);
+            const promise = () => timeoutPromise(110);
             await expect(breaker.execute(promise)).rejects.toThrow('Operation timed out');
         });
 
         test('should set state to OPEN on failure', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
             await timeoutPromise(5);
             expect(breaker.isHalfOpen()).toBe(true);
-            await breaker.execute(successPromise('success'));
+            await breaker.execute(() => successPromise('success'));
             expect(breaker.isClosed()).toBe(true);
         });
 
         test('should throw error when circuit is OPEN', async () => {
             breaker.open();
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
         });
 
         test('should not sum error when circuit is OPEN', async () => {
             breaker.open();
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
             expect(breaker.successCount).toBe(0);
             expect(breaker.failureCount).toBe(0);
@@ -56,7 +56,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = timeoutPromise(1);
+            const promise = () => timeoutPromise(1);
 
             await Promise.allSettled([
                 breaker.execute(promise),
@@ -77,8 +77,8 @@ describe('CircuitBreaker', () => {
             breaker.event.on('reject', rejectMock);
             breaker.event.on('error', errorMock);
 
-            const failPromise = failurePromise(5, new Error('failure'));
-            const promise = timeoutPromise(5);
+            const failPromise = () => failurePromise(5, new Error('failure'));
+            const promise = () => timeoutPromise(5);
 
             Promise.allSettled([
                 breaker.execute(failPromise),
@@ -103,7 +103,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = timeoutPromise(5);
+            const promise = () => timeoutPromise(5);
 
             await Promise.allSettled([
                 breaker.execute(promise),
@@ -120,6 +120,13 @@ describe('CircuitBreaker', () => {
             expect(successMock).toHaveBeenCalledTimes(4);
             expect(rejectMock).toHaveBeenCalledTimes(2);
         });
+
+        test('should fail when passing a Promise instead of a function', async () => {
+            const promise = successPromise('success') as any;
+            await expect(breaker.execute(promise)).rejects.toThrow(
+                'Invalid argument: Expected a function that returns a Promise. Ensure you are passing a function, not a Promise.'
+            );
+        });
     });
 
     describe('timeout', () => {
@@ -130,17 +137,17 @@ describe('CircuitBreaker', () => {
         });
 
         test('should execute successfully', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
         });
 
         test('should throw error on timeout', async () => {
-            const promise = timeoutPromise(200);
+            const promise = () => timeoutPromise(200);
             await expect(breaker.execute(promise)).rejects.toThrow('Operation timed out');
         });
 
         test('should set state to OPEN on failure', async () => {
-            const promise = failurePromise(10, new Error('failure'));
+            const promise = () => failurePromise(10, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
         });
@@ -185,7 +192,7 @@ describe('CircuitBreaker', () => {
         test('should transition from HALF_OPEN to CLOSE on successful request', async () => {
             breaker.halfOpen();
             expect(breaker.isHalfOpen()).toBe(true);
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
             expect(breaker.isClosed()).toBe(true);
         });
@@ -193,7 +200,7 @@ describe('CircuitBreaker', () => {
         test('should transition from HALF_OPEN to OPEN on failed request', async () => {
             breaker.halfOpen();
             expect(breaker.isHalfOpen()).toBe(true);
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
         });
@@ -213,7 +220,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should not throw timeout exeption when timeout is undefined', async () => {
-            const promise = timeoutPromise(50);
+            const promise = () => timeoutPromise(50);
             await breaker.execute(promise);
             expect(breaker.isClosed()).toBe(true);
         });
@@ -231,25 +238,25 @@ describe('CircuitBreaker', () => {
         });
 
         test('should execute successfully', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
         });
 
         test('should not consider non-critical error as a failure', async () => {
-            const promise = failurePromise(5, new Error('non-critical error'));
+            const promise = () => failurePromise(5, new Error('non-critical error'));
             await expect(breaker.execute(promise)).rejects.toThrow('non-critical error');
             expect(breaker.isOpen()).toBe(false);
         });
 
         test('should consider critical error as a failure', async () => {
-            const promise = failurePromise(5, new Error('critical error'));
+            const promise = () => failurePromise(5, new Error('critical error'));
             await expect(breaker.execute(promise)).rejects.toThrow('critical error');
             expect(breaker.isOpen()).toBe(true);
         });
 
         test('should throw error when circuit is open', async () => {
             breaker.open();
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
         });
 
@@ -258,7 +265,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('error', errorEventMock);
 
             const criticalError = new Error('critical error');
-            const promise = failurePromise(5, criticalError);
+            const promise = () => failurePromise(5, criticalError);
 
             await expect(breaker.execute(promise)).rejects.toThrow('critical error');
 
@@ -292,14 +299,14 @@ describe('CircuitBreaker', () => {
         });
 
         test('should emit open event', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(openListener).toHaveBeenCalled();
         });
 
         test('should emit close event', async () => {
             breaker.halfOpen();
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
             expect(closeListener).toHaveBeenCalled();
         });
@@ -311,13 +318,13 @@ describe('CircuitBreaker', () => {
         });
 
         test('should emit success event', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             await expect(breaker.execute(promise)).resolves.toBe('success');
             expect(successListener).toHaveBeenCalledWith('success');
         });
 
         test('should emit error event', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
         });
@@ -348,7 +355,7 @@ describe('CircuitBreaker', () => {
             breaker.open();
 
             setTimeout(async () => {
-                const promise = successPromise('success');
+                const promise = () => successPromise('success');
                 await expect(breaker.execute(promise)).resolves.toBe('success');
                 expect(breaker.isClosed()).toBe(true);
                 const newSignal = breaker.signal;
@@ -367,8 +374,8 @@ describe('CircuitBreaker', () => {
         });
 
         test('should set state to OPEN on max failureThresholdCount', async () => {
-            const promise = successPromise('success');
-            const failPromise = Promise.reject('failure');
+            const promise = () => successPromise('success');
+            const failPromise = () => Promise.reject('failure');
 
             await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
@@ -380,8 +387,8 @@ describe('CircuitBreaker', () => {
         });
 
         test('should set state to OPEN on max failureThresholdCount', async () => {
-            const promise = successPromise('success');
-            const failPromise = Promise.reject('failure');
+            const promise = () => successPromise('success');
+            const failPromise = () => Promise.reject('failure');
 
             await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
@@ -394,8 +401,8 @@ describe('CircuitBreaker', () => {
         });
 
         test('should set state to OPEN passing max failureThresholdCount', async () => {
-            const promise = successPromise('success');
-            const failPromise = Promise.reject('failure');
+            const promise = () => successPromise('success');
+            const failPromise = () => Promise.reject('failure');
 
             await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
@@ -417,7 +424,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain in HALF_OPEN state when successThreshold is below limit', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             breaker.halfOpen();
 
             await breaker.execute(promise);
@@ -426,7 +433,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to CLOSED state when reaching successThreshold limit', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             breaker.halfOpen();
 
             await breaker.execute(promise);
@@ -436,7 +443,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to CLOSED state when exceeding successThreshold limit', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
             breaker.halfOpen();
 
             await breaker.execute(promise);
@@ -447,7 +454,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain HALF_OPEN state after reset and one successful attempt', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
 
             breaker.halfOpen();
             await breaker.execute(promise);
@@ -460,7 +467,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to CLOSED state after reset and reaching successThreshold', async () => {
-            const promise = successPromise('success');
+            const promise = () => successPromise('success');
 
             breaker.halfOpen();
             await breaker.execute(promise);
@@ -482,7 +489,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain in HALF_OPEN state if retries are below attempt limit', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -491,7 +498,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state upon reaching retry attempt limit', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -501,7 +508,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state upon exceeding retry attempt limit', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -512,7 +519,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain HALF_OPEN after reset and one failed retry', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -525,7 +532,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state after reset and retry limit is reached', async () => {
-            const promise = failurePromise(5, new Error('failure'));
+            const promise = () => failurePromise(5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
