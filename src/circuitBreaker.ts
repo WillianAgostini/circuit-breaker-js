@@ -98,7 +98,7 @@ export class CircuitBreaker {
         if (this.isHalfOpen()) {
             if (!this.#state.canTryClosing()) {
                 this.event.emit('reject');
-                throw new CircuitBreakerError('Circuit is open');
+                throw new CircuitBreakerError('Circuit is halfOpen and this executions was rejected');
             }
 
             this.#state.setAttemptingClose(false);
