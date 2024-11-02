@@ -9,7 +9,7 @@ This project is an implementation of a Circuit Breaker to ensure the resilience 
 To install the dependencies, run the following command:
 
 ```sh
-npm install circuit-breaker-js
+npm install p-circuit-breaker
 ```
 
 ## Initial Configuration
@@ -17,7 +17,7 @@ npm install circuit-breaker-js
 You can instantiate a Circuit Breaker with the following options:
 
 ```typescript
-import { CircuitBreaker } from 'circuit-breaker-js';
+import { CircuitBreaker } from 'p-circuit-breaker';
 
 const breaker = new CircuitBreaker({
   failureThresholdPercentage: 50,
