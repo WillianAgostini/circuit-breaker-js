@@ -1,6 +1,6 @@
 {
   "name": "p-circuit-breaker",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -11,14 +11,30 @@
     "test": "jest",
     "test:updateSnapshot": "jest --updateSnapshot"
   },
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "author": "Willian Agostini",
+  "license": "MIT",
+  "description": "A fast circuit breaker for promise",
   "devDependencies": {
     "@tsconfig/node22": "^22.0.0",
     "@types/jest": "^29.5.14",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
     "typescript": "^5.6.3"
+  },
+  "keywords": [
+    "circuit breaker",
+    "circuit-breaker",
+    "fail-fast",
+    "circuit",
+    "breaker",
+    "hystrix",
+    "rate-limiting"
+  ],
+  "bugs": {
+    "url": "https://github.com/WillianAgostini/circuit-breaker-js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/WillianAgostini/circuit-breaker-js.git"
   }
 }
