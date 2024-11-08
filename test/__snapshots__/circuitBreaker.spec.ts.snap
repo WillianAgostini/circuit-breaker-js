@@ -8,7 +8,6 @@ exports[`CircuitBreaker toJSON should match snapshot to default options state 1`
   "isHalfOpen": false,
   "isOpen": false,
   "options": BreakerOptions {
-    "autoRenewAbortController": false,
     "failureThresholdCount": 0,
     "failureThresholdPercentage": 5,
     "isError": undefined,

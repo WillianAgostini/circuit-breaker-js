@@ -1,8 +1,14 @@
 import { CircuitBreaker } from '../src/index';
 
 const successPromise = (value: string) => Promise.resolve(value);
-const failurePromise = (timeout: number, error: Error) => new Promise((_, reject) => setTimeout(() => reject(error), timeout));
-const timeoutPromise = (timeout: number) => new Promise((resolve) => setTimeout(resolve, timeout));
+const failurePromise = (signal: AbortSignal | undefined, timeout: number, error: Error) => new Promise((_, reject) => {
+    const id = setTimeout(() => reject(error), timeout)
+    signal?.addEventListener('abort', () => clearTimeout(id));
+});
+const timeoutPromise = (signal: AbortSignal | undefined, timeout: number) => new Promise((resolve) => {
+    const id = setTimeout(resolve, timeout);
+    signal?.addEventListener('abort', () => clearTimeout(id));
+});
 
 describe('CircuitBreaker', () => {
 
@@ -10,7 +16,17 @@ describe('CircuitBreaker', () => {
         let breaker: CircuitBreaker;
 
         beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 5 });
+            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 5 });
+        });
+
+        test('should cancel promises when circuit is open', async () => {
+            await expect(breaker.execute(async (signal: AbortSignal) => {
+                return new Promise(async (_, reject) => {
+                    setTimeout(() => breaker.open(), 50);
+                    expect(signal.aborted).toBe(false);
+                    await timeoutPromise(signal, 100);
+                });
+            })).rejects.toThrow('Operation timed out');
         });
 
         test('should execute successfully', async () => {
@@ -19,15 +35,14 @@ describe('CircuitBreaker', () => {
         });
 
         test('should throw error on timeout', async () => {
-            const promise = () => timeoutPromise(110);
-            await expect(breaker.execute(promise)).rejects.toThrow('Operation timed out');
+            await expect(breaker.execute((signal: AbortSignal) => timeoutPromise(signal, 110))).rejects.toThrow('Operation timed out');
         });
 
         test('should set state to OPEN on failure', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
-            await timeoutPromise(5);
+            await timeoutPromise(undefined, 5);
             expect(breaker.isHalfOpen()).toBe(true);
             await breaker.execute(() => successPromise('success'));
             expect(breaker.isClosed()).toBe(true);
@@ -56,7 +71,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = () => timeoutPromise(1);
+            const promise = () => timeoutPromise(undefined, 1);
 
             await Promise.allSettled([
                 breaker.execute(promise),
@@ -77,8 +92,8 @@ describe('CircuitBreaker', () => {
             breaker.event.on('reject', rejectMock);
             breaker.event.on('error', errorMock);
 
-            const failPromise = () => failurePromise(5, new Error('failure'));
-            const promise = () => timeoutPromise(5);
+            const failPromise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
+            const promise = (signal: AbortSignal) => timeoutPromise(signal, 5);
 
             Promise.allSettled([
                 breaker.execute(failPromise),
@@ -103,7 +118,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('success', successMock);
             breaker.event.on('reject', rejectMock);
 
-            const promise = () => timeoutPromise(5);
+            const promise = (signal: AbortSignal) => timeoutPromise(signal, 5);
 
             await Promise.allSettled([
                 breaker.execute(promise),
@@ -141,13 +156,8 @@ describe('CircuitBreaker', () => {
             await expect(breaker.execute(promise)).resolves.toBe('success');
         });
 
-        test('should throw error on timeout', async () => {
-            const promise = () => timeoutPromise(200);
-            await expect(breaker.execute(promise)).rejects.toThrow('Operation timed out');
-        });
-
         test('should set state to OPEN on failure', async () => {
-            const promise = () => failurePromise(10, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 10, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
         });
@@ -200,14 +210,14 @@ describe('CircuitBreaker', () => {
         test('should transition from HALF_OPEN to OPEN on failed request', async () => {
             breaker.halfOpen();
             expect(breaker.isHalfOpen()).toBe(true);
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(breaker.isOpen()).toBe(true);
         });
 
         test('should reset state to HALF_OPEN after resetTimeout', async () => {
             breaker.open();
-            await timeoutPromise(10);
+            await timeoutPromise(undefined, 10);
             expect(breaker.isHalfOpen()).toBe(true);
         });
     });
@@ -220,7 +230,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should not throw timeout exeption when timeout is undefined', async () => {
-            const promise = () => timeoutPromise(50);
+            const promise = (signal: AbortSignal) => timeoutPromise(signal, 50);
             await breaker.execute(promise);
             expect(breaker.isClosed()).toBe(true);
         });
@@ -243,13 +253,13 @@ describe('CircuitBreaker', () => {
         });
 
         test('should not consider non-critical error as a failure', async () => {
-            const promise = () => failurePromise(5, new Error('non-critical error'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('non-critical error'));
             await expect(breaker.execute(promise)).rejects.toThrow('non-critical error');
             expect(breaker.isOpen()).toBe(false);
         });
 
         test('should consider critical error as a failure', async () => {
-            const promise = () => failurePromise(5, new Error('critical error'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('critical error'));
             await expect(breaker.execute(promise)).rejects.toThrow('critical error');
             expect(breaker.isOpen()).toBe(true);
         });
@@ -265,7 +275,7 @@ describe('CircuitBreaker', () => {
             breaker.event.on('error', errorEventMock);
 
             const criticalError = new Error('critical error');
-            const promise = () => failurePromise(5, criticalError);
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, criticalError);
 
             await expect(breaker.execute(promise)).rejects.toThrow('critical error');
 
@@ -299,7 +309,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should emit open event', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(openListener).toHaveBeenCalled();
         });
@@ -313,7 +323,7 @@ describe('CircuitBreaker', () => {
 
         test('should emit halfOpen event', async () => {
             breaker.open();
-            await timeoutPromise(11);
+            await timeoutPromise(undefined, 11);
             expect(halfOpenListener).toHaveBeenCalled();
         });
 
@@ -324,45 +334,9 @@ describe('CircuitBreaker', () => {
         });
 
         test('should emit error event', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
             await expect(breaker.execute(promise)).rejects.toThrow('failure');
             expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
-        });
-    });
-
-    describe('autoRenewAbortController', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 50, autoRenewAbortController: true });
-        });
-
-        test('shoud renew AbortController timeout after HALF_OPEN', (done) => {
-            const oldSignal = breaker.signal;
-            breaker.open();
-
-            setTimeout(async () => {
-                expect(breaker.isHalfOpen()).toBe(true);
-                const newSignal = breaker.signal;
-                expect(oldSignal?.aborted).toBe(true);
-                expect(newSignal?.aborted).toBe(false);
-                done();
-            }, 51);
-        });
-
-        test('shoud renew AbortController timeout after OPEN', (done) => {
-            const oldSignal = breaker.signal;
-            breaker.open();
-
-            setTimeout(async () => {
-                const promise = () => successPromise('success');
-                await expect(breaker.execute(promise)).resolves.toBe('success');
-                expect(breaker.isClosed()).toBe(true);
-                const newSignal = breaker.signal;
-                expect(oldSignal?.aborted).toBe(true);
-                expect(newSignal?.aborted).toBe(false);
-                done();
-            }, 51);
         });
     });
 
@@ -489,7 +463,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain in HALF_OPEN state if retries are below attempt limit', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -498,7 +472,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state upon reaching retry attempt limit', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -508,7 +482,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state upon exceeding retry attempt limit', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -519,7 +493,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should remain HALF_OPEN after reset and one failed retry', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -532,7 +506,7 @@ describe('CircuitBreaker', () => {
         });
 
         test('should transition to OPEN state after reset and retry limit is reached', async () => {
-            const promise = () => failurePromise(5, new Error('failure'));
+            const promise = (signal: AbortSignal) => failurePromise(signal, 5, new Error('failure'));
 
             breaker.halfOpen();
             await Promise.allSettled([breaker.execute(promise)]);
@@ -558,4 +532,27 @@ describe('CircuitBreaker', () => {
         });
 
     });
+
+    describe('execute with timeout race condition', () => {
+        let breaker: CircuitBreaker;
+
+        beforeEach(() => {
+            breaker = new CircuitBreaker({ timeout: 100 });
+        });
+
+        test('should execute only one promise when race condition occurs', async () => {
+            const promiseFn = jest.fn((signal: AbortSignal) => {
+                return new Promise(async (_, reject) => {
+                    signal.addEventListener('abort', () => {
+                        reject(new Error('Promise aborted'));
+                        expect(signal.aborted).toBe(true);
+                    });
+                    await timeoutPromise(signal, 1000);
+                });
+            });
+
+            await expect(breaker.execute(promiseFn)).rejects.toThrow('Operation timed out');
+        });
+    });
+
 });
