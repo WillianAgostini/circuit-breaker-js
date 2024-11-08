@@ -72,7 +72,7 @@ export class CircuitBreaker {
         this.#state.setOpen();
         this.#startResetTimer();
         this.#window.reset();
-        // this.#abortControllers.abortAll();
+        this.#abortManager.abortAll();
         this.#state.setAttemptingClose(false);
         this.event.emit('open');
     }
@@ -177,7 +177,7 @@ export class CircuitBreaker {
         return new Promise((_, reject) => {
             const timeoutId = setTimeout(() => {
                 clearTimeout(timeoutId);
-                reject(new Error('Operation timed out'));
+                reject(new Error('This operation was aborted'));
             }, this.#options.timeout);
 
             signal.addEventListener('abort', () => {
