@@ -31,12 +31,6 @@ export interface Options {
     isError?: (err: any) => boolean;
 
     /** 
-     * Whether to automatically renew the AbortController for each new request when the circuit is closed.
-     * @default false
-     */
-    autoRenewAbortController?: boolean;
-
-    /** 
      * Alternative to failureThresholdPercentage; opens the circuit when failures reach this count within the window.
      * @default 0
      */

@@ -1,3 +1,4 @@
+import { AbortManager } from "./abortManager";
 import { BreakerOptions } from "./breakerOptions";
 import { CircuitBreakerError } from "./circuitBreakerError";
 import { CircuitBreakerEvent } from "./circuitBreakerEvent";
@@ -5,8 +6,23 @@ import { Options } from "./options";
 import { State } from "./state";
 import { Window } from "./window";
 
-interface PromiseFunction<T> {
-    (): Promise<T>;
+/**
+ * Represents a function that executes an asynchronous operation with cancellation support.
+ * 
+ * @template T The type of the resolved value of the promise.
+ */
+export interface PromiseFunction<T> {
+    /**
+     * Executes the operation.
+     * 
+     * @param signal - An `AbortSignal` that allows the operation to be canceled.
+     * If the operation is aborted (e.g., due to a timeout or circuit breaker),
+     * the promise will reject with an `AbortError`.
+     * 
+     * @returns A promise that resolves with a value of type `T` or rejects 
+     * if an error occurs or if the operation is aborted.
+     */
+    (signal: AbortSignal): Promise<T>;
 }
 
 export class CircuitBreaker {
@@ -15,14 +31,13 @@ export class CircuitBreaker {
     readonly #state: State;
     readonly #window: Window;
     readonly #options: BreakerOptions;
-    #abortController: AbortController | undefined;
+    readonly #abortManager = new AbortManager();
     #resetTimeout: NodeJS.Timeout | undefined;
 
     constructor(opts: Options) {
         this.#options = new BreakerOptions(opts);
         this.#state = new State();
         this.#window = new Window(this.#options.windowSize);
-        this.#initializeAbortController();
     }
 
     get successCount() {
@@ -41,14 +56,6 @@ export class CircuitBreaker {
         return this.#window.failurePercentage;
     }
 
-    get abortController() {
-        return this.#abortController;
-    }
-
-    get signal() {
-        return this.abortController?.signal;
-    }
-
     isOpen() {
         return this.#state.isOpen;
     }
@@ -65,7 +72,7 @@ export class CircuitBreaker {
         this.#state.setOpen();
         this.#startResetTimer();
         this.#window.reset();
-        this.#abortController?.abort();
+        this.#abortManager.abortAll();
         this.#state.setAttemptingClose(false);
         this.event.emit('open');
     }
@@ -73,7 +80,6 @@ export class CircuitBreaker {
     close() {
         this.#clearResetTimer();
         this.#state.setClosed();
-        this.#initializeAbortController();
         this.#state.setAttemptingClose(false);
         this.#window.reset();
         this.event.emit('close');
@@ -81,13 +87,12 @@ export class CircuitBreaker {
 
     halfOpen() {
         this.#state.setHalfOpen();
-        this.#initializeAbortController();
         this.#state.setAttemptingClose(true);
         this.event.emit('halfOpen');
     }
 
-    async execute<T>(promiseFn: PromiseFunction<T>) {
-        this.#ensureIsPromiseFunction(promiseFn);
+    async execute<T>(promiseFunction: PromiseFunction<T>) {
+        this.#ensureIsPromiseFunction(promiseFunction);
         this.#evaluateResetCondition();
 
         if (this.isOpen()) {
@@ -104,11 +109,14 @@ export class CircuitBreaker {
             this.#state.setAttemptingClose(false);
         }
 
+        const { id, abortController } = this.#abortManager.create();
         try {
-            const result = await Promise.race([promiseFn(), this.#timeoutRejection()]);
+            const result = await Promise.race([promiseFunction(abortController.signal), this.#timeoutRejection(abortController.signal)]);
+            this.#abortManager.abort(id);
             this.#handleExecutionSuccess(result);
             return result as T;
         } catch (error) {
+            this.#abortManager.abort(id);
             this.#handleExecutionError(error);
         }
     }
@@ -163,27 +171,28 @@ export class CircuitBreaker {
         }
     }
 
-    #timeoutRejection() {
-        if (!this.#options.timeout) return undefined;
-        return new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Operation timed out')), this.#options.timeout)
-        );
+    #timeoutRejection(signal: AbortSignal) {
+        if (!this.#options.timeout) return;
+
+        return new Promise((_, reject) => {
+            const timeoutId = setTimeout(() => {
+                clearTimeout(timeoutId);
+                reject(new Error('This operation was aborted'));
+            }, this.#options.timeout);
+
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId);
+            });
+        });
     }
 
     #evaluateResetCondition() {
         if (this.#window.failurePercentage > this.#options.failureThresholdPercentage) {
-            this.open();
+            return this.open();
         }
 
         if (this.#options.failureThresholdCount && this.#window.failureCount >= this.#options.failureThresholdCount) {
             this.open();
-        }
-    }
-
-    #initializeAbortController() {
-        if (!this.#options.autoRenewAbortController) return;
-        if (!this.abortController || this.signal?.aborted) {
-            this.#abortController = new AbortController();
         }
     }
 

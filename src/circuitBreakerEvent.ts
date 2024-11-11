@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-type CircuitBreakerEvents = 
+type CircuitBreakerEvents =
     | 'open'
     | 'close'
     | 'halfOpen'
@@ -9,12 +9,12 @@ type CircuitBreakerEvents =
     | 'error';
 
 export class CircuitBreakerEvent extends EventEmitter {
-    
+
     emit(event: 'open' | 'close' | 'halfOpen' | 'reject'): boolean;
     emit(event: 'success', response: any): boolean;
     emit(event: 'error', err: any): boolean;
     emit(event: CircuitBreakerEvents, ...args: any[]): boolean {
-        return super.emit(event, ...args);
+        return this.listenerCount(event) > 0 ? super.emit(event, ...args) : false;
     }
 
     on(event: 'open' | 'close' | 'halfOpen' | 'reject', listener: () => void): this;
