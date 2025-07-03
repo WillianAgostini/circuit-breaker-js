@@ -206,7 +206,7 @@ describe('CircuitBreaker', () => {
             breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 50 });
         });
 
-        test('shoud reset timeout after open', (done) => {
+        test('should reset timeout after open', (done) => {
             breaker.open();
             expect(breaker.isOpen()).toBe(true);
 
@@ -216,7 +216,7 @@ describe('CircuitBreaker', () => {
             }, 51);
         });
 
-        test('shoud not reset timeout when resetTimeout is undefined', (done) => {
+        test('should not reset timeout when resetTimeout is undefined', (done) => {
             breaker = new CircuitBreaker({ timeout: 10 });
             breaker.open();
             expect(breaker.isOpen()).toBe(true);
@@ -264,9 +264,9 @@ describe('CircuitBreaker', () => {
             breaker = new CircuitBreaker({});
         });
 
-        test('should not throw timeout exeption when timeout is undefined', async () => {
+        test('should not throw timeout exception when timeout is undefined', async () => {
             const promise = (signal: AbortSignal) => fetchWithSignal(signal, 50);
-            await breaker.execute(promise);
+            await expect(breaker.execute(promise)).resolves.toEqual({ message: 'success' });
             expect(breaker.isClosed()).toBe(true);
         });
     });
@@ -378,14 +378,19 @@ describe('CircuitBreaker', () => {
         let breaker: CircuitBreaker;
 
         beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 100, failureThresholdCount: 3 });
+            breaker = new CircuitBreaker({
+                timeout: 100,
+                resetTimeout: 100,
+                failureThresholdCount: 3,
+                failureThresholdPercentage: 100,
+            });
         });
 
-        test('should set state to OPEN on max failureThresholdCount', async () => {
+        test('should remain closed when failures are below the threshold', async () => {
             const promise = () => fetchWithSignal();
             const failPromise = () => Promise.reject('failure');
 
-            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
                 breaker.execute(failPromise),
                 breaker.execute(failPromise),
@@ -394,11 +399,11 @@ describe('CircuitBreaker', () => {
             expect(breaker.isClosed()).toBe(true);
         });
 
-        test('should set state to OPEN on max failureThresholdCount', async () => {
+        test('should open circuit when failure count reaches the threshold', async () => {
             const promise = () => fetchWithSignal();
             const failPromise = () => Promise.reject('failure');
 
-            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
                 breaker.execute(failPromise),
                 breaker.execute(failPromise),
@@ -412,7 +417,7 @@ describe('CircuitBreaker', () => {
             const promise = () => fetchWithSignal();
             const failPromise = () => Promise.reject('failure');
 
-            await Promise.all(Array.from({ length: 100 }).map(() => breaker.execute(promise)));
+            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
             await Promise.allSettled([
                 breaker.execute(failPromise),
                 breaker.execute(failPromise),
