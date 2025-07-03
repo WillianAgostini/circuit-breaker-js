@@ -62,7 +62,13 @@ export class Window {
 
     #filterWithinWindow(timestamps: number[]): number[] {
         const cutoffTime = Date.now() - this.windowSizeMs;
-        const validIndex = timestamps.findIndex(timestamp => timestamp >= cutoffTime);
-        return validIndex !== -1 ? timestamps.slice(validIndex) : [];
+        let idx = 0;
+        while (idx < timestamps.length && timestamps[idx] < cutoffTime) {
+            idx++;
+        }
+        if (idx > 0) {
+            timestamps.splice(0, idx);
+        }
+        return timestamps;
     }
 }

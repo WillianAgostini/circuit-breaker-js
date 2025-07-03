@@ -111,7 +111,10 @@ export class CircuitBreaker {
 
         const { id, abortController } = this.#abortManager.create();
         try {
-            const result = await Promise.race([promiseFunction(abortController.signal), this.#timeoutRejection(abortController.signal)]);
+            const tasks: Promise<any>[] = [promiseFunction(abortController.signal)];
+            const timeout = this.#timeoutRejection(abortController.signal);
+            if (timeout) tasks.push(timeout);
+            const result = await Promise.race(tasks);
             this.#abortManager.abort(id);
             this.#handleExecutionSuccess(result);
             return result as T;
