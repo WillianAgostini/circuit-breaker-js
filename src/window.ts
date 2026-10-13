@@ -7,12 +7,12 @@ export class Window {
     constructor(private readonly windowSizeMs: number) {}
 
     get successCount(): number {
-        this.#successTimestamps = this.#filterWithinWindow(this.#successTimestamps);
+        this.#filterWithinWindow(this.#successTimestamps);
         return this.#successTimestamps.length;
     }
 
     get failureCount(): number {
-        this.#failureTimestamps = this.#filterWithinWindow(this.#failureTimestamps);
+        this.#filterWithinWindow(this.#failureTimestamps);
         return this.#failureTimestamps.length;
     }
 
@@ -60,7 +60,7 @@ export class Window {
         this.#successOnHalfOpen = [];
     }
 
-    #filterWithinWindow(timestamps: number[]): number[] {
+    #filterWithinWindow(timestamps: number[]) {
         const cutoffTime = Date.now() - this.windowSizeMs;
         let idx = 0;
         while (idx < timestamps.length && timestamps[idx] < cutoffTime) {
@@ -69,6 +69,5 @@ export class Window {
         if (idx > 0) {
             timestamps.splice(0, idx);
         }
-        return timestamps;
     }
 }

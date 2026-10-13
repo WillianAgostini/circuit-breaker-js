@@ -3,8 +3,8 @@ import { Options } from "./options";
 export class BreakerOptions {
     windowSize: number;
     failureThresholdPercentage: number;
-    timeout?: number;
-    resetTimeout?: number;
+    timeout: number;
+    resetTimeout: number;
     isError?: (err: any) => boolean;
     failureThresholdCount: number;
     successThreshold: number;
@@ -14,8 +14,8 @@ export class BreakerOptions {
         const {
             failureThresholdPercentage = 5,
             windowSize = 60000,
-            timeout,
-            resetTimeout,
+            timeout= 10_000,
+            resetTimeout = 1000,
             isError,
             failureThresholdCount = 0,
             retryAttempts = 1,

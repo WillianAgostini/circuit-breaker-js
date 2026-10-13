@@ -1,575 +1,288 @@
+/// <reference types="jest" />
 import { CircuitBreaker } from '../src/index';
-import http from 'http';
 
 describe('CircuitBreaker', () => {
-
-    let breaker: CircuitBreaker;
-    let server: http.Server;
-    let serverUrl: string;
-    const abortedMessage = 'This operation was aborted';
-
-    const fetchWithSignal = async (signal: AbortSignal | undefined = undefined, timeoutMs = 0, error?: Error) => {
-        const headers = new Headers({
-            'timeout-ms': timeoutMs.toString(),
-        });
-        const response = await fetch(serverUrl, { signal, headers });
-        if (error)
+    const delayedOperation = async (delayMs = 0, error?: Error) => {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        if (error) {
             throw error;
-
-        return response.json();
+        }
+        return { message: 'success' };
     };
 
-    beforeAll((done) => {
-        server = http.createServer((req, res) => {
-            const ms = req.headers['timeout-ms'];
-            const timeout = ms != undefined ? Number(ms) : 1;
-            setTimeout(() => {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: 'success' }));
-            }, timeout);
-        });
+    const failOperation = (error = new Error('failure')) => () => Promise.reject(error);
 
-        server.listen(() => {
-            const address = server.address();
-            if (typeof address === 'object' && address !== null) {
-                serverUrl = `http://localhost:${address.port}`;
-            }
-            done();
-        });
-    });
+    const wait = (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
-    afterAll((done) => {
-        server.close(done);
-    });
+    async function openBreaker(breaker: CircuitBreaker) {
+        await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+        expect(breaker.metrics().isOpen).toBe(true);
+    }
+
+    async function moveToHalfOpen(breaker: CircuitBreaker, resetTimeout: number) {
+        await openBreaker(breaker);
+        await wait(resetTimeout + 1);
+        expect(breaker.metrics().isHalfOpen).toBe(true);
+    }
 
     describe('execute', () => {
+        let breaker: CircuitBreaker;
 
         beforeEach(() => {
             breaker = new CircuitBreaker({ timeout: 50, resetTimeout: 5 });
         });
 
-        test('should cancel promises when circuit has opened', async () => {
-            setTimeout(() => breaker.open(), 50);
-            await expect(breaker.execute((signal) => fetchWithSignal(signal, 99))).rejects.toThrow(abortedMessage);
+        test('executes a successful operation and exposes its metrics', async () => {
+            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
+            expect(breaker.metrics()).toMatchObject({
+                isClosed: true,
+                isOpen: false,
+                isHalfOpen: false,
+                successCount: 1,
+                failureCount: 0,
+                totalRequests: 1,
+                failurePercentage: 0,
+            });
         });
 
-        test('should abort fetch request when circuit breaker timeout is reached', async () => {
-            await expect(breaker.execute((s) => fetchWithSignal(s, 100))).rejects.toThrow(abortedMessage);
+        test('rejects an operation that exceeds the timeout', async () => {
+            await expect(breaker.execute(() => delayedOperation(110))).rejects.toThrow('This operation was aborted');
+            expect(breaker.metrics().isOpen).toBe(true);
         });
 
-        test('should fetch successfully before timeout', async () => {
-            breaker = new CircuitBreaker({ timeout: 200, resetTimeout: 5 });
+        test('opens after a failure, transitions to half-open, and closes after a success', async () => {
+            await moveToHalfOpen(breaker, 5);
 
-            const fetchWithSignal = async (signal: AbortSignal) => {
-                const response = await fetch(serverUrl, { signal });
-                return response.json();
-            };
-
-            await expect(breaker.execute(fetchWithSignal)).resolves.toEqual({ message: 'success' });
+            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
+            expect(breaker.metrics()).toMatchObject({
+                isClosed: true,
+                isOpen: false,
+                isHalfOpen: false,
+            });
         });
 
-        test('should execute successfully', async () => {
-            await expect(breaker.execute(fetchWithSignal)).resolves.toEqual({ message: 'success' });
+        test('rejects operations while open without invoking them', async () => {
+            await openBreaker(breaker);
+            const operation = jest.fn(delayedOperation);
+
+            await expect(breaker.execute(operation)).rejects.toThrow('Circuit is open');
+            expect(operation).not.toHaveBeenCalled();
         });
 
-        test('should throw error on timeout', async () => {
-            await expect(breaker.execute((signal) => fetchWithSignal(signal, 110))).rejects.toThrow(abortedMessage);
-        });
+        test('only admits one concurrent operation while half-open', async () => {
+            await moveToHalfOpen(breaker, 5);
+            const operation = jest.fn(() => delayedOperation(10));
 
-        test('should set state to OPEN on failure', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-            await expect(breaker.execute(promise)).rejects.toThrow('failure');
-            expect(breaker.isOpen()).toBe(true);
-            await fetchWithSignal(undefined, 5);
-            expect(breaker.isHalfOpen()).toBe(true);
-            await breaker.execute(fetchWithSignal);
-            expect(breaker.isClosed()).toBe(true);
-        });
-
-        test('should throw error when circuit is OPEN', async () => {
-            breaker.open();
-            await expect(breaker.execute(fetchWithSignal)).rejects.toThrow('Circuit is open');
-        });
-
-        test('should not sum error when circuit is OPEN', async () => {
-            breaker.open();
-            await expect(breaker.execute(fetchWithSignal)).rejects.toThrow('Circuit is open');
-            expect(breaker.successCount).toBe(0);
-            expect(breaker.failureCount).toBe(0);
-            expect(breaker.totalRequests).toBe(0);
-            expect(breaker.failurePercentage).toBe(0);
-        });
-
-        test('should pass 1 execution when circuit is HALF_OPEN', async () => {
-            breaker.halfOpen();
-            const successMock = jest.fn();
-            const rejectMock = jest.fn();
-            breaker.event.on('success', successMock);
-            breaker.event.on('reject', rejectMock);
-
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 1);
-
-            await Promise.allSettled([
-                breaker.execute(promise),
-                breaker.execute(promise),
-                breaker.execute(promise),
+            const results = await Promise.allSettled([
+                breaker.execute(operation),
+                breaker.execute(operation),
+                breaker.execute(operation),
             ]);
 
-            expect(successMock).toHaveBeenCalledTimes(1);
-            expect(rejectMock).toHaveBeenCalledTimes(2);
+            expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+            expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(2);
+            expect(operation).toHaveBeenCalledTimes(1);
+            expect(breaker.metrics().isClosed).toBe(true);
         });
 
-        test('should pass 1 execution when circuit is HALF_OPEN', (done) => {
-            breaker.halfOpen();
-            const successMock = jest.fn();
-            const rejectMock = jest.fn();
-            const errorMock = jest.fn();
-            breaker.event.on('success', successMock);
-            breaker.event.on('reject', rejectMock);
-            breaker.event.on('error', errorMock);
-
-            const failPromise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5);
-
-            Promise.allSettled([
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-            ]).finally(() => {
-                setTimeout(async () => {
-                    await breaker.execute(promise);
-
-                    expect(breaker.isClosed()).toBe(true);
-                    expect(successMock).toHaveBeenCalledTimes(1);
-                    expect(rejectMock).toHaveBeenCalledTimes(1);
-                    expect(errorMock).toHaveBeenCalledTimes(1);
-                    done();
-                }, 10);
-            })
-        });
-
-        test('should pass 1 execution when circuit is HALF_OPEN in 2 executions', async () => {
-            breaker.halfOpen();
-            const successMock = jest.fn();
-            const rejectMock = jest.fn();
-            breaker.event.on('success', successMock);
-            breaker.event.on('reject', rejectMock);
-
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5);
-
-            await Promise.allSettled([
-                breaker.execute(promise),
-                breaker.execute(promise),
-                breaker.execute(promise),
-            ]);
-
-            await Promise.allSettled([
-                breaker.execute(promise),
-                breaker.execute(promise),
-                breaker.execute(promise),
-            ]);
-
-            expect(successMock).toHaveBeenCalledTimes(4);
-            expect(rejectMock).toHaveBeenCalledTimes(2);
-        });
-
-        test('should fail when passing a Promise instead of a function', async () => {
-            const promise = fetchWithSignal() as any;
-            await expect(breaker.execute(promise)).rejects.toThrow(
+        test('rejects a Promise passed instead of a function', async () => {
+            await expect(breaker.execute(delayedOperation() as never)).rejects.toThrow(
                 'Invalid argument: Expected a function that returns a Promise. Ensure you are passing a function, not a Promise.'
             );
         });
     });
 
-    describe('timeout', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 100 });
-        });
-
-        test('should execute successfully', async () => {
-            const promise = () => fetchWithSignal();
-            await expect(breaker.execute(promise)).resolves.toEqual({ message: 'success' });
-        });
-
-        test('should set state to OPEN on failure', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 10, new Error('failure'));
-            await expect(breaker.execute(promise)).rejects.toThrow('failure');
-            expect(breaker.isOpen()).toBe(true);
-        });
-    });
-
-    describe('resetTimeout', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 10, resetTimeout: 50 });
-        });
-
-        test('should reset timeout after open', (done) => {
-            breaker.open();
-            expect(breaker.isOpen()).toBe(true);
-
-            setTimeout(() => {
-                expect(breaker.isHalfOpen()).toBe(true);
-                done();
-            }, 51);
-        });
-
-        test('should not reset timeout when resetTimeout is undefined', (done) => {
-            breaker = new CircuitBreaker({ timeout: 10 });
-            breaker.open();
-            expect(breaker.isOpen()).toBe(true);
-
-            setTimeout(() => {
-                expect(breaker.isOpen()).toBe(true);
-                done();
-            }, 51);
-        });
-    });
-
-    describe('state transitions', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 50, resetTimeout: 5 });
-        });
-
-        test('should transition from HALF_OPEN to CLOSE on successful request', async () => {
-            breaker.halfOpen();
-            expect(breaker.isHalfOpen()).toBe(true);
-            await expect(breaker.execute(fetchWithSignal)).resolves.toEqual({ message: 'success' });
-            expect(breaker.isClosed()).toBe(true);
-        });
-
-        test('should transition from HALF_OPEN to OPEN on failed request', async () => {
-            breaker.halfOpen();
-            expect(breaker.isHalfOpen()).toBe(true);
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-            await expect(breaker.execute(promise)).rejects.toThrow('failure');
-            expect(breaker.isOpen()).toBe(true);
-        });
-
-        test('should reset state to HALF_OPEN after resetTimeout', async () => {
-            breaker.open();
-            await fetchWithSignal(undefined, 10);
-            expect(breaker.isHalfOpen()).toBe(true);
-        });
-    });
-
-    describe('state transitions with default options', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({});
-        });
-
-        test('should not throw timeout exception when timeout is undefined', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 50);
-            await expect(breaker.execute(promise)).resolves.toEqual({ message: 'success' });
-            expect(breaker.isClosed()).toBe(true);
+    describe('timeout defaults', () => {
+        test('does not time out an operation when no timeout is configured', async () => {
+            const breaker = new CircuitBreaker({});
+            jest.useFakeTimers();
+            try {
+                const execution = breaker.execute(() => delayedOperation(20));
+                await jest.advanceTimersByTimeAsync(20);
+                await expect(execution).resolves.toEqual({ message: 'success' });
+                expect(breaker.metrics().isClosed).toBe(true);
+            } finally {
+                jest.clearAllTimers();
+                jest.useRealTimers();
+            }
         });
     });
 
     describe('isError', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({
+        test('does not count errors rejected by the custom predicate as failures', async () => {
+            const breaker = new CircuitBreaker({
                 timeout: 100,
-                resetTimeout: 5,
-                isError: (err) => err.message !== 'non-critical error',
+                isError: (error) => error.message !== 'non-critical error',
+            });
+
+            await expect(
+                breaker.execute(failOperation(new Error('non-critical error')))
+            ).rejects.toThrow('non-critical error');
+            expect(breaker.metrics()).toMatchObject({
+                isClosed: true,
+                successCount: 1,
+                failureCount: 0,
             });
         });
 
-        test('should execute successfully', async () => {
-            const promise = () => fetchWithSignal();
-            await expect(breaker.execute(promise)).resolves.toEqual({ message: 'success' });
-        });
+        test('counts critical errors as failures', async () => {
+            const breaker = new CircuitBreaker({
+                timeout: 100,
+                isError: (error) => error.message !== 'non-critical error',
+            });
 
-        test('should not consider non-critical error as a failure', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('non-critical error'));
-            await expect(breaker.execute(promise)).rejects.toThrow('non-critical error');
-            expect(breaker.isOpen()).toBe(false);
-        });
-
-        test('should consider critical error as a failure', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('critical error'));
-            await expect(breaker.execute(promise)).rejects.toThrow('critical error');
-            expect(breaker.isOpen()).toBe(true);
-        });
-
-        test('should throw error when circuit is open', async () => {
-            breaker.open();
-            const promise = () => fetchWithSignal();
-            await expect(breaker.execute(promise)).rejects.toThrow('Circuit is open');
-        });
-
-        test('should re-throw error and open circuit for critical error', async () => {
-            const errorEventMock = jest.fn();
-            breaker.event.on('error', errorEventMock);
-
-            const criticalError = new Error('critical error');
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, criticalError);
-
-            await expect(breaker.execute(promise)).rejects.toThrow('critical error');
-
-            expect(errorEventMock).toHaveBeenCalledWith(criticalError);
-
-            expect(breaker.isOpen()).toBe(true);
+            await expect(
+                breaker.execute(failOperation(new Error('critical error')))
+            ).rejects.toThrow('critical error');
+            expect(breaker.metrics().isOpen).toBe(true);
         });
     });
 
-    describe('events', () => {
-        let breaker: CircuitBreaker;
-        let openListener: jest.Mock;
-        let closeListener: jest.Mock;
-        let halfOpenListener: jest.Mock;
-        let successListener: jest.Mock;
-        let errorListener: jest.Mock;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 5 });
-            openListener = jest.fn();
-            closeListener = jest.fn();
-            halfOpenListener = jest.fn();
-            successListener = jest.fn();
-            errorListener = jest.fn();
-
-            breaker.event.on('open', openListener);
-            breaker.event.on('close', closeListener);
-            breaker.event.on('halfOpen', halfOpenListener);
-            breaker.event.on('success', successListener);
-            breaker.event.on('error', errorListener);
+    describe('resetTimeout', () => {
+        test('transitions from open to half-open after the configured delay', async () => {
+            const breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 10 });
+            await moveToHalfOpen(breaker, 10);
         });
 
-        test('should emit open event', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-            await expect(breaker.execute(promise)).rejects.toThrow('failure');
-            expect(openListener).toHaveBeenCalled();
-        });
+        test('uses the default reset delay when none is configured', async () => {
+            const breaker = new CircuitBreaker({ timeout: 100 });
+            await openBreaker(breaker);
+            await wait(20);
 
-        test('should emit close event', async () => {
-            breaker.halfOpen();
-            const promise = () => fetchWithSignal();
-            await expect(breaker.execute(promise)).resolves.toEqual({ message: 'success' });
-            expect(closeListener).toHaveBeenCalled();
-        });
-
-        test('should emit halfOpen event', async () => {
-            breaker.open();
-            await fetchWithSignal(undefined, 11);
-            expect(halfOpenListener).toHaveBeenCalled();
-        });
-
-        test('should emit success event', async () => {
-            await expect(breaker.execute(fetchWithSignal)).resolves.toEqual({ message: 'success' });
-            expect(successListener).toHaveBeenCalledWith({ message: 'success' });
-        });
-
-        test('should emit error event', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-            await expect(breaker.execute(promise)).rejects.toThrow('failure');
-            expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
+            expect(breaker.metrics().isOpen).toBe(true);
         });
     });
 
     describe('failureThresholdCount', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({
+        test('opens when the configured number of failures is reached', async () => {
+            const breaker = new CircuitBreaker({
                 timeout: 100,
                 resetTimeout: 100,
                 failureThresholdCount: 3,
                 failureThresholdPercentage: 100,
             });
-        });
 
-        test('should remain closed when failures are below the threshold', async () => {
-            const promise = () => fetchWithSignal();
-            const failPromise = () => Promise.reject('failure');
+            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+            expect(breaker.metrics()).toMatchObject({ isClosed: true, failureCount: 2 });
 
-            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
-            await Promise.allSettled([
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-            ]);
-
-            expect(breaker.isClosed()).toBe(true);
-        });
-
-        test('should open circuit when failure count reaches the threshold', async () => {
-            const promise = () => fetchWithSignal();
-            const failPromise = () => Promise.reject('failure');
-
-            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
-            await Promise.allSettled([
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-            ]);
-
-            expect(breaker.isOpen()).toBe(true);
-        });
-
-        test('should set state to OPEN passing max failureThresholdCount', async () => {
-            const promise = () => fetchWithSignal();
-            const failPromise = () => Promise.reject('failure');
-
-            await Promise.all(Array.from({ length: 10 }).map(() => breaker.execute(promise)));
-            await Promise.allSettled([
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-                breaker.execute(failPromise),
-            ]);
-
-            expect(breaker.isOpen()).toBe(true);
+            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+            expect(breaker.metrics().isOpen).toBe(true);
         });
     });
 
-    describe('successThreshold', () => {
+    describe('half-open thresholds', () => {
+        test('requires the configured number of successful attempts before closing', async () => {
+            const breaker = new CircuitBreaker({
+                timeout: 100,
+                resetTimeout: 5,
+                successThreshold: 2,
+            });
+            await moveToHalfOpen(breaker, 5);
+
+            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
+            expect(breaker.metrics().isHalfOpen).toBe(true);
+
+            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
+            expect(breaker.metrics().isClosed).toBe(true);
+        });
+
+        test('reopens after the configured number of failed attempts', async () => {
+            const breaker = new CircuitBreaker({
+                timeout: 100,
+                resetTimeout: 5,
+                retryAttempts: 2,
+            });
+            await moveToHalfOpen(breaker, 5);
+
+            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+            expect(breaker.metrics().isHalfOpen).toBe(true);
+
+            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
+            expect(breaker.metrics().isOpen).toBe(true);
+        });
+    });
+
+    describe('metrics', () => {
         let breaker: CircuitBreaker;
 
         beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 100, resetTimeout: 100, successThreshold: 2 });
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date(1_000));
+            breaker = new CircuitBreaker({
+                timeout: 1_000,
+                windowSize: 100,
+                failureThresholdPercentage: 100,
+            });
         });
 
-        test('should remain in HALF_OPEN state when successThreshold is below limit', async () => {
-            const promise = () => fetchWithSignal();
-            breaker.halfOpen();
-
-            await breaker.execute(promise);
-
-            expect(breaker.isHalfOpen()).toBe(true);
+        afterEach(() => {
+            jest.useRealTimers();
         });
 
-        test('should transition to CLOSED state when reaching successThreshold limit', async () => {
-            const promise = () => fetchWithSignal();
-            breaker.halfOpen();
-
-            await breaker.execute(promise);
-            await breaker.execute(promise);
-
-            expect(breaker.isClosed()).toBe(true);
+        test('reports the initial metrics', () => {
+            const breaker = new CircuitBreaker({});
+            expect(breaker.metrics()).toMatchSnapshot();
         });
 
-        test('should transition to CLOSED state when exceeding successThreshold limit', async () => {
-            const promise = () => fetchWithSignal();
-            breaker.halfOpen();
+        test('tracks successful and failed requests through the public API', async () => {
+            await breaker.execute(() => Promise.resolve('success'));
+            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
 
-            await breaker.execute(promise);
-            await breaker.execute(promise);
-            await breaker.execute(promise);
-
-            expect(breaker.isClosed()).toBe(true);
+            expect(breaker.metrics()).toMatchObject({
+                isClosed: true,
+                successCount: 1,
+                failureCount: 1,
+                totalRequests: 2,
+                failurePercentage: 50,
+            });
         });
 
-        test('should remain HALF_OPEN state after reset and one successful attempt', async () => {
-            const promise = () => fetchWithSignal();
+        test('keeps requests at the window boundary and expires them after it', async () => {
+            await breaker.execute(() => Promise.resolve('success'));
+            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
 
-            breaker.halfOpen();
-            await breaker.execute(promise);
-            await breaker.execute(promise);
+            jest.setSystemTime(new Date(1_100));
+            expect(breaker.metrics()).toMatchObject({
+                successCount: 1,
+                failureCount: 1,
+                totalRequests: 2,
+            });
 
-            breaker.halfOpen();
-            await breaker.execute(promise);
-
-            expect(breaker.isHalfOpen()).toBe(true);
+            jest.setSystemTime(new Date(1_101));
+            expect(breaker.metrics()).toMatchObject({
+                successCount: 0,
+                failureCount: 0,
+                totalRequests: 0,
+                failurePercentage: 0,
+            });
         });
 
-        test('should transition to CLOSED state after reset and reaching successThreshold', async () => {
-            const promise = () => fetchWithSignal();
+        test('expires success and failure timestamps independently', async () => {
+            await breaker.execute(() => Promise.resolve('success'));
+            jest.setSystemTime(new Date(1_050));
+            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
 
-            breaker.halfOpen();
-            await breaker.execute(promise);
-            await breaker.execute(promise);
-
-            breaker.halfOpen();
-            await breaker.execute(promise);
-            await breaker.execute(promise);
-
-            expect(breaker.isClosed()).toBe(true);
-        });
-    });
-
-    describe('retryAttempts', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({ timeout: 1, retryAttempts: 2 });
+            jest.setSystemTime(new Date(1_101));
+            expect(breaker.metrics()).toMatchObject({
+                successCount: 0,
+                failureCount: 1,
+                totalRequests: 1,
+                failurePercentage: 100,
+            });
         });
 
-        test('should remain in HALF_OPEN state if retries are below attempt limit', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
+        test('counts new requests after old timestamps expire', async () => {
+            await breaker.execute(() => Promise.resolve('success'));
+            jest.setSystemTime(new Date(1_101));
+            expect(breaker.metrics().totalRequests).toBe(0);
 
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            expect(breaker.isHalfOpen()).toBe(true);
-        });
-
-        test('should transition to OPEN state upon reaching retry attempt limit', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            expect(breaker.isOpen()).toBe(true);
-        });
-
-        test('should transition to OPEN state upon exceeding retry attempt limit', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            expect(breaker.isOpen()).toBe(true);
-        });
-
-        test('should remain HALF_OPEN after reset and one failed retry', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            expect(breaker.isHalfOpen()).toBe(true);
-        });
-
-        test('should transition to OPEN state after reset and retry limit is reached', async () => {
-            const promise = (signal: AbortSignal) => fetchWithSignal(signal, 5, new Error('failure'));
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            breaker.halfOpen();
-            await Promise.allSettled([breaker.execute(promise)]);
-            await Promise.allSettled([breaker.execute(promise)]);
-
-            expect(breaker.isOpen()).toBe(true);
+            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
+            expect(breaker.metrics()).toMatchObject({
+                successCount: 0,
+                failureCount: 1,
+                totalRequests: 1,
+            });
         });
     });
-
-    describe('toJSON', () => {
-        let breaker: CircuitBreaker;
-
-        beforeEach(() => {
-            breaker = new CircuitBreaker({});
-        });
-
-        test('should match snapshot to default options state', async () => {
-            expect(breaker.toJSON()).toMatchSnapshot();
-        });
-
-    });
-
 });

@@ -1,9 +1,13 @@
-/** @type {import('ts-jest').JestConfigWithTsJest} **/
+const { createDefaultPreset } = require("ts-jest");
+
+const tsJestTransformCfg = createDefaultPreset().transform;
+
+/** @type {import("jest").Config} **/
 module.exports = {
   testEnvironment: "node",
   coverageReporters: ["lcov"],
   transform: {
-    "^.+.tsx?$": ["ts-jest",{}],
+    ...tsJestTransformCfg,
   },
   collectCoverage: true,
   coverageThreshold: {

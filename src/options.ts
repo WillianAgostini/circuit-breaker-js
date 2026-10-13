@@ -2,7 +2,7 @@ export interface Options {
     /** 
      * Time window in milliseconds to track failures and successes.
      * Used to calculate failure rates within the given timeframe.
-     * @default 60000
+     * @default 60_000
      */
     windowSize?: number;
 
@@ -14,13 +14,13 @@ export interface Options {
 
     /** 
      * Maximum time in milliseconds allowed for a request before it is considered a failure.
-     * @default undefined
+     * @default 10_000
      */
     timeout?: number;
 
     /** 
      * Time in milliseconds the circuit remains open before attempting to transition to half-open.
-     * @default undefined
+     * @default 1000
      */
     resetTimeout?: number;
 

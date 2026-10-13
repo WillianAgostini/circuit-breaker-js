@@ -70,7 +70,6 @@ For more information, refer to [Martin Fowler's article on Circuit Breaker](http
 - **timeout**: Maximum execution time before considering the request failed. (default: undefined)
 - **resetTimeout**: Time after which the Circuit Breaker will attempt to change from "open" to "half-open" to check resource recovery. (default: undefined)
 - **isError**: Custom function to determine if an error should count as a failure. (default: undefined)
-- **autoRenewAbortController**: Defines whether the AbortController should be automatically renewed for each new request when the circuit is closed. (default: false)
 - **failureThresholdCount**: Alternative to `failureThresholdPercentage`; opens the circuit when failures reach this count within the window. (default: 0)
 - **retryAttempts**: Number of allowed retry attempts in the half-open state before opening the circuit again if failures persist. (default: 1)
 - **successThreshold**: Number of consecutive successes required in the half-open state to fully close the circuit. (default: 1)
