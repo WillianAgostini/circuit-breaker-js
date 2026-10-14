@@ -1,4 +1,7 @@
-/// <reference types="jest" />
+/// <reference types="node" />
+
+import assert from 'node:assert/strict';
+import { beforeEach, describe, test } from 'node:test';
 import { CircuitBreaker } from '../src/index';
 
 describe('CircuitBreaker', () => {
@@ -14,15 +17,23 @@ describe('CircuitBreaker', () => {
 
     const wait = (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
+    function assertMetricsMatch(
+        breaker: CircuitBreaker,
+        expected: Partial<ReturnType<CircuitBreaker['metrics']>>
+    ) {
+        const metrics = breaker.metrics();
+        assert.deepEqual(metrics, { ...metrics, ...expected });
+    }
+
     async function openBreaker(breaker: CircuitBreaker) {
-        await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-        expect(breaker.metrics().isOpen).toBe(true);
+        await assert.rejects(breaker.execute(failOperation()), /failure/);
+        assert.equal(breaker.metrics().isOpen, true);
     }
 
     async function moveToHalfOpen(breaker: CircuitBreaker, resetTimeout: number) {
         await openBreaker(breaker);
         await wait(resetTimeout + 1);
-        expect(breaker.metrics().isHalfOpen).toBe(true);
+        assert.equal(breaker.metrics().isHalfOpen, true);
     }
 
     describe('execute', () => {
@@ -33,8 +44,8 @@ describe('CircuitBreaker', () => {
         });
 
         test('executes a successful operation and exposes its metrics', async () => {
-            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
-            expect(breaker.metrics()).toMatchObject({
+            assert.deepEqual(await breaker.execute(delayedOperation), { message: 'success' });
+            assertMetricsMatch(breaker, {
                 isClosed: true,
                 isOpen: false,
                 isHalfOpen: false,
@@ -46,15 +57,15 @@ describe('CircuitBreaker', () => {
         });
 
         test('rejects an operation that exceeds the timeout', async () => {
-            await expect(breaker.execute(() => delayedOperation(110))).rejects.toThrow('This operation was aborted');
-            expect(breaker.metrics().isOpen).toBe(true);
+            await assert.rejects(breaker.execute(() => delayedOperation(110)), /This operation was aborted/);
+            assert.equal(breaker.metrics().isOpen, true);
         });
 
         test('opens after a failure, transitions to half-open, and closes after a success', async () => {
             await moveToHalfOpen(breaker, 5);
 
-            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
-            expect(breaker.metrics()).toMatchObject({
+            assert.deepEqual(await breaker.execute(delayedOperation), { message: 'success' });
+            assertMetricsMatch(breaker, {
                 isClosed: true,
                 isOpen: false,
                 isHalfOpen: false,
@@ -63,15 +74,23 @@ describe('CircuitBreaker', () => {
 
         test('rejects operations while open without invoking them', async () => {
             await openBreaker(breaker);
-            const operation = jest.fn(delayedOperation);
+            let operationCalled = false;
+            const operation = (...args: Parameters<typeof delayedOperation>) => {
+                operationCalled = true;
+                return delayedOperation(...args);
+            };
 
-            await expect(breaker.execute(operation)).rejects.toThrow('Circuit is open');
-            expect(operation).not.toHaveBeenCalled();
+            await assert.rejects(breaker.execute(operation), /Circuit is open/);
+            assert.equal(operationCalled, false);
         });
 
         test('only admits one concurrent operation while half-open', async () => {
             await moveToHalfOpen(breaker, 5);
-            const operation = jest.fn(() => delayedOperation(10));
+            let operationCalls = 0;
+            const operation = () => {
+                operationCalls += 1;
+                return delayedOperation(10);
+            };
 
             const results = await Promise.allSettled([
                 breaker.execute(operation),
@@ -79,15 +98,18 @@ describe('CircuitBreaker', () => {
                 breaker.execute(operation),
             ]);
 
-            expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
-            expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(2);
-            expect(operation).toHaveBeenCalledTimes(1);
-            expect(breaker.metrics().isClosed).toBe(true);
+            assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+            assert.equal(results.filter(({ status }) => status === 'rejected').length, 2);
+            assert.equal(operationCalls, 1);
+            assert.equal(breaker.metrics().isClosed, true);
         });
 
         test('rejects a Promise passed instead of a function', async () => {
-            await expect(breaker.execute(delayedOperation() as never)).rejects.toThrow(
-                'Invalid argument: Expected a function that returns a Promise. Ensure you are passing a function, not a Promise.'
+            await assert.rejects(
+                breaker.execute(delayedOperation() as never),
+                {
+                    message: 'Invalid argument: Expected a function that returns a Promise. Ensure you are passing a function, not a Promise.',
+                }
             );
         });
     });
@@ -95,16 +117,8 @@ describe('CircuitBreaker', () => {
     describe('timeout defaults', () => {
         test('does not time out an operation when no timeout is configured', async () => {
             const breaker = new CircuitBreaker({});
-            jest.useFakeTimers();
-            try {
-                const execution = breaker.execute(() => delayedOperation(20));
-                await jest.advanceTimersByTimeAsync(20);
-                await expect(execution).resolves.toEqual({ message: 'success' });
-                expect(breaker.metrics().isClosed).toBe(true);
-            } finally {
-                jest.clearAllTimers();
-                jest.useRealTimers();
-            }
+            assert.deepEqual(await breaker.execute(() => delayedOperation(20)), { message: 'success' });
+            assert.equal(breaker.metrics().isClosed, true);
         });
     });
 
@@ -115,10 +129,11 @@ describe('CircuitBreaker', () => {
                 isError: (error) => error.message !== 'non-critical error',
             });
 
-            await expect(
-                breaker.execute(failOperation(new Error('non-critical error')))
-            ).rejects.toThrow('non-critical error');
-            expect(breaker.metrics()).toMatchObject({
+            await assert.rejects(
+                breaker.execute(failOperation(new Error('non-critical error'))),
+                /non-critical error/
+            );
+            assertMetricsMatch(breaker, {
                 isClosed: true,
                 successCount: 1,
                 failureCount: 0,
@@ -131,10 +146,11 @@ describe('CircuitBreaker', () => {
                 isError: (error) => error.message !== 'non-critical error',
             });
 
-            await expect(
-                breaker.execute(failOperation(new Error('critical error')))
-            ).rejects.toThrow('critical error');
-            expect(breaker.metrics().isOpen).toBe(true);
+            await assert.rejects(
+                breaker.execute(failOperation(new Error('critical error'))),
+                /critical error/
+            );
+            assert.equal(breaker.metrics().isOpen, true);
         });
     });
 
@@ -149,7 +165,7 @@ describe('CircuitBreaker', () => {
             await openBreaker(breaker);
             await wait(20);
 
-            expect(breaker.metrics().isOpen).toBe(true);
+            assert.equal(breaker.metrics().isOpen, true);
         });
     });
 
@@ -162,12 +178,12 @@ describe('CircuitBreaker', () => {
                 failureThresholdPercentage: 100,
             });
 
-            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-            expect(breaker.metrics()).toMatchObject({ isClosed: true, failureCount: 2 });
+            await assert.rejects(breaker.execute(failOperation()), /failure/);
+            await assert.rejects(breaker.execute(failOperation()), /failure/);
+            assertMetricsMatch(breaker, { isClosed: true, failureCount: 2 });
 
-            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-            expect(breaker.metrics().isOpen).toBe(true);
+            await assert.rejects(breaker.execute(failOperation()), /failure/);
+            assert.equal(breaker.metrics().isOpen, true);
         });
     });
 
@@ -180,11 +196,11 @@ describe('CircuitBreaker', () => {
             });
             await moveToHalfOpen(breaker, 5);
 
-            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
-            expect(breaker.metrics().isHalfOpen).toBe(true);
+            assert.deepEqual(await breaker.execute(delayedOperation), { message: 'success' });
+            assert.equal(breaker.metrics().isHalfOpen, true);
 
-            await expect(breaker.execute(delayedOperation)).resolves.toEqual({ message: 'success' });
-            expect(breaker.metrics().isClosed).toBe(true);
+            assert.deepEqual(await breaker.execute(delayedOperation), { message: 'success' });
+            assert.equal(breaker.metrics().isClosed, true);
         });
 
         test('reopens after the configured number of failed attempts', async () => {
@@ -195,20 +211,23 @@ describe('CircuitBreaker', () => {
             });
             await moveToHalfOpen(breaker, 5);
 
-            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-            expect(breaker.metrics().isHalfOpen).toBe(true);
+            await assert.rejects(breaker.execute(failOperation()), /failure/);
+            assert.equal(breaker.metrics().isHalfOpen, true);
 
-            await expect(breaker.execute(failOperation())).rejects.toThrow('failure');
-            expect(breaker.metrics().isOpen).toBe(true);
+            await assert.rejects(breaker.execute(failOperation()), /failure/);
+            assert.equal(breaker.metrics().isOpen, true);
         });
     });
 
     describe('metrics', () => {
         let breaker: CircuitBreaker;
+        let setMockTime: (time: number) => void;
 
-        beforeEach(() => {
-            jest.useFakeTimers();
-            jest.setSystemTime(new Date(1_000));
+        beforeEach((t) => {
+            const timers = t.mock.timers;
+            timers.enable({ apis: ['Date'] });
+            timers.setTime(1_000);
+            setMockTime = (time) => timers.setTime(time);
             breaker = new CircuitBreaker({
                 timeout: 1_000,
                 windowSize: 100,
@@ -216,20 +235,24 @@ describe('CircuitBreaker', () => {
             });
         });
 
-        afterEach(() => {
-            jest.useRealTimers();
-        });
-
         test('reports the initial metrics', () => {
             const breaker = new CircuitBreaker({});
-            expect(breaker.metrics()).toMatchSnapshot();
+            assert.deepEqual(breaker.metrics(), {
+                isClosed: true,
+                isOpen: false,
+                isHalfOpen: false,
+                successCount: 0,
+                failureCount: 0,
+                totalRequests: 0,
+                failurePercentage: 0,
+            });
         });
 
         test('tracks successful and failed requests through the public API', async () => {
             await breaker.execute(() => Promise.resolve('success'));
-            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
+            await assert.rejects(breaker.execute(() => Promise.reject(new Error('failure'))), /failure/);
 
-            expect(breaker.metrics()).toMatchObject({
+            assertMetricsMatch(breaker, {
                 isClosed: true,
                 successCount: 1,
                 failureCount: 1,
@@ -240,17 +263,17 @@ describe('CircuitBreaker', () => {
 
         test('keeps requests at the window boundary and expires them after it', async () => {
             await breaker.execute(() => Promise.resolve('success'));
-            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
+            await assert.rejects(breaker.execute(() => Promise.reject(new Error('failure'))), /failure/);
 
-            jest.setSystemTime(new Date(1_100));
-            expect(breaker.metrics()).toMatchObject({
+            setMockTime(1_100);
+            assertMetricsMatch(breaker, {
                 successCount: 1,
                 failureCount: 1,
                 totalRequests: 2,
             });
 
-            jest.setSystemTime(new Date(1_101));
-            expect(breaker.metrics()).toMatchObject({
+            setMockTime(1_101);
+            assertMetricsMatch(breaker, {
                 successCount: 0,
                 failureCount: 0,
                 totalRequests: 0,
@@ -260,11 +283,11 @@ describe('CircuitBreaker', () => {
 
         test('expires success and failure timestamps independently', async () => {
             await breaker.execute(() => Promise.resolve('success'));
-            jest.setSystemTime(new Date(1_050));
-            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
+            setMockTime(1_050);
+            await assert.rejects(breaker.execute(() => Promise.reject(new Error('failure'))), /failure/);
 
-            jest.setSystemTime(new Date(1_101));
-            expect(breaker.metrics()).toMatchObject({
+            setMockTime(1_101);
+            assertMetricsMatch(breaker, {
                 successCount: 0,
                 failureCount: 1,
                 totalRequests: 1,
@@ -274,11 +297,11 @@ describe('CircuitBreaker', () => {
 
         test('counts new requests after old timestamps expire', async () => {
             await breaker.execute(() => Promise.resolve('success'));
-            jest.setSystemTime(new Date(1_101));
-            expect(breaker.metrics().totalRequests).toBe(0);
+            setMockTime(1_101);
+            assert.equal(breaker.metrics().totalRequests, 0);
 
-            await expect(breaker.execute(() => Promise.reject(new Error('failure')))).rejects.toThrow('failure');
-            expect(breaker.metrics()).toMatchObject({
+            await assert.rejects(breaker.execute(() => Promise.reject(new Error('failure'))), /failure/);
+            assertMetricsMatch(breaker, {
                 successCount: 0,
                 failureCount: 1,
                 totalRequests: 1,

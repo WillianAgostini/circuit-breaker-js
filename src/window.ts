@@ -3,8 +3,11 @@ export class Window {
     #failureTimestamps: number[] = [];
     #successOnHalfOpen: number[] = [];
     #failureOnHalfOpen: number[] = [];
+    #windowSizeMs: number;
 
-    constructor(private readonly windowSizeMs: number) {}
+    constructor(windowSizeMs: number) {
+        this.#windowSizeMs = windowSizeMs;
+    }
 
     get successCount(): number {
         this.#filterWithinWindow(this.#successTimestamps);
@@ -61,7 +64,7 @@ export class Window {
     }
 
     #filterWithinWindow(timestamps: number[]) {
-        const cutoffTime = Date.now() - this.windowSizeMs;
+        const cutoffTime = Date.now() - this.#windowSizeMs;
         let idx = 0;
         while (idx < timestamps.length && timestamps[idx] < cutoffTime) {
             idx++;

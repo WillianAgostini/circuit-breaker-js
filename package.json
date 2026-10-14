@@ -8,18 +8,15 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "jest",
-    "test:updateSnapshot": "jest --updateSnapshot"
+    "test": "node --import tsx --test test/*.spec.ts"
   },
   "author": "Willian Agostini",
   "license": "MIT",
   "description": "A fast circuit breaker for promise",
   "devDependencies": {
-    "@tsconfig/node26": "^26.0.1",
-    "@types/jest": "^30.0.0",
-    "jest": "^30.5.2",
-    "ts-jest": "^29.4.14",
-    "typescript": "^6.0.3"
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   },
   "keywords": [
     "circuit breaker",
